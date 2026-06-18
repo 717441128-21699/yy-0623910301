@@ -15,6 +15,7 @@ import {
   Gauge,
   Sparkles,
   AlertTriangle,
+  History,
 } from 'lucide-react';
 import type { CrisisCase, OpinionItem, CaseCategory, DifficultyLevel, OpinionSource, Sentiment } from '../types';
 import { CASE_CATEGORIES, DIFFICULTY_LEVELS, SOURCE_LABELS } from '../types';
@@ -137,11 +138,13 @@ const Textarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement> & { l
 );
 
 export const CaseEditorModal: React.FC<Props> = ({ isOpen, onClose, initialCase, onAfterSave }) => {
-  const { addCustomCase, updateCustomCase } = useTrainingStore();
+  const { upsertCustomCase, restoreCaseVersion } = useTrainingStore();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [caseData, setCaseData] = useState<CrisisCase>(() => (initialCase ? JSON.parse(JSON.stringify(initialCase)) : makeEmptyCase()));
   const [keywordInput, setKeywordInput] = useState('');
   const [errors, setErrors] = useState<string[]>([]);
+  const [versionNote, setVersionNote] = useState('');
+  const [viewingVersion, setViewingVersion] = useState<number | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -149,6 +152,8 @@ export const CaseEditorModal: React.FC<Props> = ({ isOpen, onClose, initialCase,
       setStep(1);
       setErrors([]);
       setKeywordInput('');
+      setVersionNote('');
+      setViewingVersion(null);
     }
   }, [isOpen, initialCase]);
 
@@ -279,13 +284,8 @@ export const CaseEditorModal: React.FC<Props> = ({ isOpen, onClose, initialCase,
       },
     };
 
-    if (initialCase) {
-      updateCustomCase(cleaned);
-      if (onAfterSave) onAfterSave(cleaned);
-    } else {
-      addCustomCase(cleaned);
-      if (onAfterSave) onAfterSave(cleaned);
-    }
+    const saved = upsertCustomCase(cleaned, versionNote.trim() || undefined);
+    if (onAfterSave) onAfterSave(saved);
     onClose();
   };
 
@@ -592,6 +592,83 @@ export const CaseEditorModal: React.FC<Props> = ({ isOpen, onClose, initialCase,
               onChange={(e) => setCaseData({ ...caseData, idealResponse: { ...caseData.idealResponse, internal: e.target.value } })}
               placeholder={'【内部紧急通知】\n一、事件定级：\n二、对外统一口径（三句话版本）：\n三、绝对禁令：\n四、各部门任务：\n五、上报机制：'}
             />
+          </div>
+        )}
+
+        {(initialCase || caseData.currentVersion) && (
+          <div className="mb-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-mono text-calm-teal-400 flex items-center gap-1">
+                <History size={11} />
+                版本信息
+                {caseData.currentVersion && (
+                  <span className="px-1.5 py-0.5 rounded-sm bg-pro-gold-500/10 border border-pro-gold-500/30 text-pro-gold-300 ml-1">
+                    v{caseData.currentVersion}
+                  </span>
+                )}
+                {caseData.updatedAt && (
+                  <span className="text-deep-blue-400 ml-1">
+                    更新于 {new Date(caseData.updatedAt).toLocaleString('zh-CN')}
+                  </span>
+                )}
+              </div>
+            </div>
+            <label className="block space-y-1">
+              <div className="text-[10px] font-mono text-deep-blue-400">版本变更说明（可选）</div>
+              <input
+                type="text"
+                value={versionNote}
+                onChange={(e) => setVersionNote(e.target.value)}
+                placeholder="如：新增了3条负面舆情素材，优化了官方回应参考"
+                className="w-full px-2.5 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 rounded-sm text-xs text-deep-blue-50 font-mono focus:outline-none focus:border-pro-gold-400 placeholder:text-deep-blue-500"
+              />
+            </label>
+            {caseData.versions && caseData.versions.length > 0 && (
+              <div className="space-y-1">
+                <div className="text-[10px] font-mono text-deep-blue-400">历史版本（点击可回看）</div>
+                <div className="flex flex-wrap gap-1">
+                  {caseData.versions.map((v, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setViewingVersion(viewingVersion === idx ? null : idx)}
+                      className={`px-2 py-0.5 rounded-sm border text-[10px] font-mono transition-all ${
+                        viewingVersion === idx
+                          ? 'bg-pro-gold-500/20 border-pro-gold-500/50 text-pro-gold-300'
+                          : 'bg-deep-blue-800 border-deep-blue-600 text-deep-blue-300 hover:border-deep-blue-500'
+                      }`}
+                    >
+                      v{v.version} · {new Date(v.updatedAt).toLocaleDateString('zh-CN')}
+                    </button>
+                  ))}
+                </div>
+                {viewingVersion !== null && caseData.versions[viewingVersion] && (
+                  <div className="p-2 rounded-sm border border-deep-blue-600 bg-deep-blue-900/50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="text-[10px] font-mono text-pro-gold-300">
+                        v{caseData.versions[viewingVersion].version} · {caseData.versions[viewingVersion].versionNote}
+                      </div>
+                      <button
+                        onClick={() => {
+                          const restored = restoreCaseVersion(caseData.id, viewingVersion);
+                          if (restored) {
+                            setCaseData(JSON.parse(JSON.stringify(restored)));
+                            setVersionNote(`回退至 v${caseData.versions![viewingVersion].version}`);
+                            setViewingVersion(null);
+                          }
+                        }}
+                        className="px-2 py-0.5 rounded-sm bg-alert-red-500/10 border border-alert-red-500/30 text-alert-red-400 text-[9px] font-mono hover:bg-alert-red-500/20"
+                      >
+                        回退到此版本
+                      </button>
+                    </div>
+                    <div className="text-[10px] font-mono text-deep-blue-400 grid grid-cols-2 gap-1">
+                      <div>标题：{caseData.versions[viewingVersion].snapshot.title}</div>
+                      <div>素材：{caseData.versions[viewingVersion].snapshot.opinionStream.length}条</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

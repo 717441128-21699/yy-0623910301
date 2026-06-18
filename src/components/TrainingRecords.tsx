@@ -43,7 +43,7 @@ import {
 } from 'recharts';
 import { useTrainingStore } from '../store/trainingStore';
 import { WindowFrame } from './WindowFrame';
-import type { TrainingRecord, ImprovementPlan } from '../types';
+import type { TrainingRecord, ImprovementPlan, Team } from '../types';
 import { SOURCE_LABELS } from '../types';
 
 const DifficultyBadge: React.FC<{ level: string }> = ({ level }) => {
@@ -154,6 +154,102 @@ function RecordMiniChart({ records }: { records: TrainingRecord[] }) {
             strokeDasharray="4 3"
             dot={false}
           />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+const TEAM_MEMBER_COLORS = [
+  '#2a9d8f',
+  '#e9c46a',
+  '#f4a261',
+  '#e76f51',
+  '#457b9d',
+  '#a8dadc',
+  '#ffd166',
+  '#ef476f',
+  '#118ab2',
+  '#06d6a0',
+];
+
+function TeamMiniChart({ teamRecordsByMember, teamAvgRecords }: {
+  teamRecordsByMember: { name: string; records: TrainingRecord[] }[];
+  teamAvgRecords: TrainingRecord[];
+}) {
+  const maxLen = Math.max(
+    teamAvgRecords.length,
+    ...teamRecordsByMember.map(m => Math.min(m.records.length, 3))
+  );
+  if (maxLen === 0) return null;
+
+  const labels: string[] = [];
+  for (let i = 0; i < maxLen; i++) labels.push(`#${i + 1}`);
+
+  const data = labels.map((label, idx) => {
+    const row: Record<string, any> = { no: label };
+    const teamIdx = teamAvgRecords.length - maxLen + idx;
+    if (teamIdx >= 0 && teamAvgRecords[teamIdx]) {
+      row['小组均分'] = teamAvgRecords[teamIdx].totalScore;
+    }
+    teamRecordsByMember.forEach((member, mi) => {
+      const recent = member.records.slice(-3);
+      const mIdx = recent.length - maxLen + idx;
+      if (mIdx >= 0 && recent[mIdx]) {
+        row[member.name] = recent[mIdx].totalScore;
+      }
+    });
+    return row;
+  });
+
+  return (
+    <div className="h-40 bg-deep-blue-900/40 rounded-sm border border-deep-blue-600 p-2">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#2d4873" />
+          <XAxis
+            dataKey="no"
+            tick={{ fill: '#4a6591', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }}
+            axisLine={{ stroke: '#2d4873' }}
+          />
+          <YAxis
+            domain={[0, 100]}
+            tick={{ fill: '#4a6591', fontSize: 9, fontFamily: 'JetBrains Mono, monospace' }}
+            axisLine={{ stroke: '#2d4873' }}
+          />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: '#131d35',
+              border: '1px solid #d4a373',
+              borderRadius: '2px',
+              fontSize: '11px',
+              fontFamily: 'JetBrains Mono, monospace',
+            }}
+          />
+          <Legend
+            wrapperStyle={{ fontSize: '9px', fontFamily: 'JetBrains Mono, monospace' }}
+          />
+          <Line
+            type="monotone"
+            dataKey="小组均分"
+            name="小组均分"
+            stroke="#d4a373"
+            strokeWidth={2.5}
+            dot={{ r: 3, fill: '#d4a373' }}
+            connectNulls
+          />
+          {teamRecordsByMember.map((member, mi) => (
+            <Line
+              key={member.name}
+              type="monotone"
+              dataKey={member.name}
+              name={member.name}
+              stroke={TEAM_MEMBER_COLORS[mi % TEAM_MEMBER_COLORS.length]}
+              strokeWidth={1.3}
+              dot={{ r: 2, fill: TEAM_MEMBER_COLORS[mi % TEAM_MEMBER_COLORS.length] }}
+              connectNulls
+            />
+          ))}
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -458,10 +554,129 @@ const RecordRow: React.FC<{ record: TrainingRecord; onDelete: () => void }> = ({
   );
 };
 
+function TrendIndicator({ trend }: { trend: 'up' | 'down' | 'flat' | 'none' }) {
+  if (trend === 'up') {
+    return (
+      <span className="flex items-center gap-0.5 text-calm-teal-400 text-[10px] font-mono">
+        <TrendingUp size={10} />
+        上升
+      </span>
+    );
+  }
+  if (trend === 'down') {
+    return (
+      <span className="flex items-center gap-0.5 text-alert-red-400 text-[10px] font-mono">
+        <AlertTriangle size={10} />
+        下降
+      </span>
+    );
+  }
+  if (trend === 'flat') {
+    return (
+      <span className="flex items-center gap-0.5 text-deep-blue-300 text-[10px] font-mono">
+        <ArrowRight size={10} />
+        持平
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-0.5 text-deep-blue-500 text-[10px] font-mono">
+      · 无数据
+    </span>
+  );
+}
+
+interface TeamStatsMembers {
+  trainee: { id: string; name: string; role?: string; department?: string; notes?: string; createdAt: number };
+  latestRecord: TrainingRecord | null;
+  avgScore: number;
+  scoreTrend: 'up' | 'down' | 'flat' | 'none';
+  latestWeakness: string | null;
+  recordCount: number;
+}
+
+function TeamStatsPanel({ teamMembers }: { teamMembers: TeamStatsMembers[] }) {
+  return (
+    <div className="rounded-sm border border-calm-teal-500/30 bg-calm-teal-500/5 overflow-hidden">
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-calm-teal-500/20 bg-calm-teal-500/10">
+        <Users size={12} className="text-calm-teal-400" />
+        <span className="text-[12px] font-serif-cn text-calm-teal-300 font-bold">小组训练概况</span>
+      </div>
+      <div className="divide-y divide-deep-blue-600/50">
+        {teamMembers.map((m, idx) => (
+          <div key={m.trainee.id} className="px-3 py-2 hover:bg-deep-blue-800/30 transition-colors">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="w-6 h-6 rounded-sm flex items-center justify-center flex-shrink-0"
+                  style={{ backgroundColor: `${TEAM_MEMBER_COLORS[idx % TEAM_MEMBER_COLORS.length]}20`, border: `1px solid ${TEAM_MEMBER_COLORS[idx % TEAM_MEMBER_COLORS.length]}50` }}>
+                  <User size={11} style={{ color: TEAM_MEMBER_COLORS[idx % TEAM_MEMBER_COLORS.length] }} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] font-mono text-deep-blue-100 font-medium">{m.trainee.name}</span>
+                    {!m.latestRecord && (
+                      <span className="px-1 py-px text-[9px] font-mono rounded-sm bg-deep-blue-600/50 text-deep-blue-400 border border-deep-blue-500/50">
+                        未开始训练
+                      </span>
+                    )}
+                  </div>
+                  {m.latestWeakness && (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <AlertTriangle size={8} className="text-terminal-amber flex-shrink-0" />
+                      <span className="text-[9px] font-mono text-terminal-amber truncate">
+                        短板：{m.latestWeakness}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <div className="text-center">
+                  <div className="text-[8px] font-mono text-deep-blue-500">次数</div>
+                  <div className="text-[11px] font-mono text-deep-blue-200 font-bold">
+                    {m.recordCount}
+                  </div>
+                </div>
+                <div className="text-center w-14">
+                  <div className="text-[8px] font-mono text-deep-blue-500">平均分</div>
+                  <div className={`text-[11px] font-mono font-bold ${m.avgScore > 0 ? scoreClass(m.avgScore) : 'text-deep-blue-500'}`}>
+                    {m.avgScore > 0 ? m.avgScore : '-'}
+                  </div>
+                </div>
+                <div className="text-center w-14">
+                  <div className="text-[8px] font-mono text-deep-blue-500">最近</div>
+                  <div className={`text-[11px] font-mono font-bold ${m.latestRecord ? scoreClass(m.latestRecord.totalScore) : 'text-deep-blue-500'}`}>
+                    {m.latestRecord ? m.latestRecord.totalScore : '-'}
+                  </div>
+                </div>
+                <div className="w-14 flex justify-center">
+                  <TrendIndicator trend={m.scoreTrend} />
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export const TrainingRecords: React.FC = () => {
-  const { records, deleteRecord, clearAllRecords, setActivePanel, trainees, currentTraineeId, setCurrentTrainee } = useTrainingStore();
+  const {
+    records,
+    deleteRecord,
+    clearAllRecords,
+    setActivePanel,
+    trainees,
+    currentTraineeId,
+    setCurrentTrainee,
+    teams,
+    getTeamStats,
+  } = useTrainingStore();
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterTraineeId, setFilterTraineeId] = useState<string>(currentTraineeId || 'all');
+  const [filterTeamId, setFilterTeamId] = useState<string>('all');
+  const [teamViewMode, setTeamViewMode] = useState<'summary' | 'member'>('summary');
   const [sortBy, setSortBy] = useState<'date' | 'score'>('date');
 
   const categories = useMemo(() => {
@@ -469,27 +684,107 @@ export const TrainingRecords: React.FC = () => {
     return Array.from(set);
   }, [records]);
 
+  const selectedTeam = useMemo(() => {
+    if (filterTeamId === 'all') return null;
+    return teams.find(t => t.id === filterTeamId) || null;
+  }, [filterTeamId, teams]);
+
+  const teamMemberIds = useMemo(() => {
+    if (!selectedTeam) return [];
+    return selectedTeam.memberIds;
+  }, [selectedTeam]);
+
+  const teamMemberTrainees = useMemo(() => {
+    return trainees.filter(t => teamMemberIds.includes(t.id));
+  }, [trainees, teamMemberIds]);
+
+  const teamStats = useMemo(() => {
+    if (!selectedTeam) return null;
+    return getTeamStats(selectedTeam.id);
+  }, [selectedTeam, getTeamStats]);
+
   const traineeRecordCount = (id: string) => records.filter(r => r.traineeId === id).length;
+  const teamRecordCount = () => records.filter(r => r.traineeId && teamMemberIds.includes(r.traineeId)).length;
   const anonymousCount = records.filter(r => !r.traineeId).length;
+
+  const displayTrainees = useMemo(() => {
+    if (selectedTeam) {
+      return teamMemberTrainees;
+    }
+    return trainees;
+  }, [selectedTeam, teamMemberTrainees, trainees]);
 
   const filteredSorted = useMemo(() => {
     let list = records.slice();
     if (filterCategory !== 'all') list = list.filter(r => r.caseCategory === filterCategory);
+
     if (filterTraineeId !== 'all') {
       if (filterTraineeId === 'anonymous') list = list.filter(r => !r.traineeId);
       else list = list.filter(r => r.traineeId === filterTraineeId);
+    } else if (selectedTeam) {
+      if (teamViewMode === 'summary') {
+        list = list.filter(r => r.traineeId && teamMemberIds.includes(r.traineeId));
+      }
     }
+
     if (sortBy === 'date') list.sort((a, b) => b.createdAt - a.createdAt);
     else list.sort((a, b) => b.totalScore - a.totalScore);
     return list;
-  }, [records, filterCategory, sortBy, filterTraineeId]);
+  }, [records, filterCategory, sortBy, filterTraineeId, selectedTeam, teamMemberIds, teamViewMode]);
 
-  const avgScore = filteredSorted.length > 0
-    ? Math.round(filteredSorted.reduce((s, r) => s + r.totalScore, 0) / filteredSorted.length)
+  const statsRecords = useMemo(() => {
+    if (!selectedTeam) return filteredSorted;
+    if (teamViewMode === 'summary') {
+      return records.filter(r => r.traineeId && teamMemberIds.includes(r.traineeId));
+    }
+    return filteredSorted;
+  }, [selectedTeam, filteredSorted, records, teamMemberIds, teamViewMode]);
+
+  const avgScore = statsRecords.length > 0
+    ? Math.round(statsRecords.reduce((s, r) => s + r.totalScore, 0) / statsRecords.length)
     : 0;
-  const bestScore = filteredSorted.length > 0
-    ? Math.max(...filteredSorted.map(r => r.totalScore))
+  const bestScore = statsRecords.length > 0
+    ? Math.max(...statsRecords.map(r => r.totalScore))
     : 0;
+
+  const showTeamPanel = selectedTeam && teamViewMode === 'summary' && teamStats;
+
+  const teamRecordsForChart = useMemo(() => {
+    if (!selectedTeam) return { members: [] as { name: string; records: TrainingRecord[] }[], teamAvg: [] as TrainingRecord[] };
+    const memberRecords = teamMemberIds.map(mid => {
+      const t = trainees.find(tr => tr.id === mid);
+      return {
+        name: t?.name || '未知',
+        records: records.filter(r => r.traineeId === mid).sort((a, b) => a.createdAt - b.createdAt),
+      };
+    }).filter(m => m.records.length > 0);
+
+    const allTeamRecords = records
+      .filter(r => r.traineeId && teamMemberIds.includes(r.traineeId))
+      .sort((a, b) => a.createdAt - b.createdAt);
+
+    const teamAvg: TrainingRecord[] = [];
+    const dateBuckets = new Map<number, TrainingRecord[]>();
+    allTeamRecords.forEach(r => {
+      const key = r.createdAt;
+      if (!dateBuckets.has(key)) dateBuckets.set(key, []);
+      dateBuckets.get(key)!.push(r);
+    });
+    const sortedKeys = Array.from(dateBuckets.keys()).sort((a, b) => a - b);
+    sortedKeys.forEach(key => {
+      const bucket = dateBuckets.get(key)!;
+      const avgS = Math.round(bucket.reduce((s, r) => s + r.totalScore, 0) / bucket.length);
+      teamAvg.push({ ...bucket[0], totalScore: avgS });
+    });
+
+    return { members: memberRecords, teamAvg };
+  }, [selectedTeam, teamMemberIds, trainees, records]);
+
+  const handleTeamChange = (teamId: string) => {
+    setFilterTeamId(teamId);
+    setFilterTraineeId('all');
+    setTeamViewMode('summary');
+  };
 
   return (
     <WindowFrame
@@ -512,37 +807,80 @@ export const TrainingRecords: React.FC = () => {
         <div className="p-3 border-b border-deep-blue-500 space-y-3 bg-gradient-to-b from-deep-blue-800/60 to-deep-blue-800/30">
           {records.length > 0 ? (
             <>
+              {teams.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5 text-[10px] font-mono text-deep-blue-300">
+                    <Users size={10} className="text-pro-gold-400" />
+                    <span>小组视图</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={filterTeamId}
+                      onChange={(e) => handleTeamChange(e.target.value)}
+                      className="bg-deep-blue-900/60 border border-deep-blue-500 text-deep-blue-100 text-[10px] font-mono rounded-sm px-2 py-1 focus:outline-none focus:border-pro-gold-400"
+                    >
+                      <option value="all">全部记录</option>
+                      {teams.map(t => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} · {t.memberIds.length}人
+                        </option>
+                      ))}
+                    </select>
+                    {selectedTeam && (
+                      <span className="text-[10px] font-mono text-deep-blue-400">
+                        {selectedTeam.department || ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <div className="flex items-center gap-1.5 text-[10px] font-mono text-deep-blue-300">
                   <Users size={10} className="text-calm-teal-400" />
-                  <span>按学员筛选</span>
+                  <span>{selectedTeam ? '小组成员筛选' : '按学员筛选'}</span>
                 </div>
                 <div className="flex gap-1 flex-wrap">
-                  <button
-                    onClick={() => setFilterTraineeId('all')}
-                    className={`px-2 py-1 text-[10px] font-mono rounded-sm border transition-all ${
-                      filterTraineeId === 'all'
-                        ? 'bg-pro-gold-500/20 border-pro-gold-400 text-pro-gold-300'
-                        : 'bg-deep-blue-700 border-deep-blue-500 text-deep-blue-200 hover:border-deep-blue-400'
-                    }`}
-                  >
-                    全部学员 ({records.length})
-                  </button>
-                  {trainees.map(t => {
+                  {selectedTeam && (
+                    <button
+                      onClick={() => { setFilterTraineeId('all'); setTeamViewMode('summary'); }}
+                      className={`px-2 py-1 text-[10px] font-mono rounded-sm border transition-all flex items-center gap-1 ${
+                        filterTraineeId === 'all' && teamViewMode === 'summary'
+                          ? 'bg-pro-gold-500/20 border-pro-gold-400 text-pro-gold-300'
+                          : 'bg-deep-blue-700 border-deep-blue-500 text-deep-blue-200 hover:border-deep-blue-400'
+                      }`}
+                    >
+                      <Users size={9} />
+                      全组汇总 ({teamRecordCount()})
+                    </button>
+                  )}
+                  {!selectedTeam && (
+                    <button
+                      onClick={() => setFilterTraineeId('all')}
+                      className={`px-2 py-1 text-[10px] font-mono rounded-sm border transition-all ${
+                        filterTraineeId === 'all'
+                          ? 'bg-pro-gold-500/20 border-pro-gold-400 text-pro-gold-300'
+                          : 'bg-deep-blue-700 border-deep-blue-500 text-deep-blue-200 hover:border-deep-blue-400'
+                      }`}
+                    >
+                      全部学员 ({records.length})
+                    </button>
+                  )}
+                  {displayTrainees.map(t => {
                     const c = traineeRecordCount(t.id);
-                    if (c === 0) return null;
+                    const isSelected = filterTraineeId === t.id;
                     return (
                       <button
                         key={t.id}
-                        onClick={() => setFilterTraineeId(t.id)}
+                        onClick={() => { setFilterTraineeId(t.id); setTeamViewMode('member'); }}
                         className={`px-2 py-1 text-[10px] font-mono rounded-sm border transition-all flex items-center gap-1 ${
-                          filterTraineeId === t.id
+                          isSelected
                             ? 'bg-calm-teal-500/20 border-calm-teal-400 text-calm-teal-300'
                             : 'bg-deep-blue-700 border-deep-blue-500 text-deep-blue-200 hover:border-deep-blue-400'
                         }`}
                       >
                         <User size={9} />
-                        {t.name} ({c})
+                        {t.name}{selectedTeam ? ` (${c})` : ` (${c})`}
                       </button>
                     );
                   })}
@@ -563,20 +901,41 @@ export const TrainingRecords: React.FC = () => {
 
               <div className="grid grid-cols-3 gap-2">
                 <div className="p-2 rounded-sm bg-deep-blue-900/60 border border-deep-blue-600 text-center">
-                  <div className="text-[10px] font-mono text-deep-blue-400 mb-1">训练次数</div>
-                  <div className="text-xl font-mono font-bold text-terminal-green">{filteredSorted.length}</div>
+                  <div className="text-[10px] font-mono text-deep-blue-400 mb-1">
+                    {showTeamPanel ? '小组训练次数' : '训练次数'}
+                  </div>
+                  <div className="text-xl font-mono font-bold text-terminal-green">{statsRecords.length}</div>
                 </div>
                 <div className="p-2 rounded-sm bg-deep-blue-900/60 border border-deep-blue-600 text-center">
-                  <div className="text-[10px] font-mono text-deep-blue-400 mb-1">平均分</div>
+                  <div className="text-[10px] font-mono text-deep-blue-400 mb-1">
+                    {showTeamPanel ? '小组平均分' : '平均分'}
+                  </div>
                   <div className={`text-xl font-mono font-bold ${scoreClass(avgScore)}`}>{avgScore}</div>
                 </div>
                 <div className="p-2 rounded-sm bg-deep-blue-900/60 border border-deep-blue-600 text-center">
-                  <div className="text-[10px] font-mono text-deep-blue-400 mb-1">最高分</div>
+                  <div className="text-[10px] font-mono text-deep-blue-400 mb-1">
+                    {showTeamPanel ? '小组最高分' : '最高分'}
+                  </div>
                   <div className={`text-xl font-mono font-bold ${scoreClass(bestScore)}`}>{bestScore}</div>
                 </div>
               </div>
 
-              {filteredSorted.length >= 2 && <RecordMiniChart records={filteredSorted} />}
+              {showTeamPanel && (
+                <TeamMiniChart
+                  teamRecordsByMember={teamRecordsForChart.members}
+                  teamAvgRecords={teamRecordsForChart.teamAvg}
+                />
+              )}
+              {!showTeamPanel && statsRecords.length >= 2 && <RecordMiniChart records={statsRecords} />}
+
+              {showTeamPanel && teamStats && (
+                <TeamStatsPanel
+                  teamMembers={teamStats.members.map(m => ({
+                    ...m,
+                    recordCount: records.filter(r => r.traineeId === m.trainee.id).length,
+                  }))}
+                />
+              )}
 
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex items-center gap-1 text-[10px] font-mono">

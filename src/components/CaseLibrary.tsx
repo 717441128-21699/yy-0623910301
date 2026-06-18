@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Archive,
   AlertTriangle,
@@ -22,11 +22,16 @@ import {
   X,
   Edit,
   FileText,
+  Users2,
+  UserMinus,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from 'lucide-react';
 import { useTrainingStore } from '../store/trainingStore';
 import { WindowFrame } from './WindowFrame';
 import { CaseEditorModal } from './CaseEditorModal';
-import type { CrisisCategory, CrisisCase, Trainee } from '../types';
+import type { CrisisCategory, CrisisCase, Trainee, Team } from '../types';
 import { CATEGORY_LABELS, DIFFICULTY_LABELS, OUTBREAK_SPEEDS, MEDIA_ATTENTIONS, PRESSURE_LEVELS } from '../types';
 
 const CATEGORY_ICONS: Record<CrisisCategory, React.ReactNode> = {
@@ -125,11 +130,52 @@ const TraineeEditor: React.FC<{ initial?: Trainee | null; onSave: (t: Omit<Train
   );
 };
 
+const TeamEditor: React.FC<{ initial?: Team | null; onSave: (t: Omit<Team, 'id' | 'createdAt' | 'updatedAt' | 'memberIds'> & { id?: string }) => void; onClose: () => void }> = ({ initial, onSave, onClose }) => {
+  const [name, setName] = useState(initial?.name || '');
+  const [department, setDepartment] = useState(initial?.department || '');
+  const [description, setDescription] = useState(initial?.description || '');
+  const [err, setErr] = useState('');
+
+  const submit = () => {
+    if (!name.trim()) { setErr('请填写小组名称'); return; }
+    onSave({ id: initial?.id, name: name.trim(), department: department.trim() || undefined, description: description.trim() || undefined });
+  };
+
+  return (
+    <div className="space-y-3">
+      {err && <div className="text-[11px] font-mono text-alert-red-400 bg-alert-red-500/10 border border-alert-red-500/30 p-2 rounded-sm">{err}</div>}
+      <label className="block space-y-1">
+        <div className="text-[11px] font-mono text-pro-gold-300">小组名称 <span className="text-alert-red-400">*</span></div>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="如：公关危机应对A组"
+          className="w-full px-2.5 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 rounded-sm text-sm text-deep-blue-50 font-mono focus:outline-none focus:border-pro-gold-400 focus:shadow-glow-gold transition-all" />
+      </label>
+      <label className="block space-y-1">
+        <div className="text-[11px] font-mono text-pro-gold-300">所属部门</div>
+        <input value={department} onChange={e => setDepartment(e.target.value)} placeholder="如：品牌公关部 / 市场部"
+          className="w-full px-2.5 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 rounded-sm text-sm text-deep-blue-50 font-mono focus:outline-none focus:border-pro-gold-400" />
+      </label>
+      <label className="block space-y-1">
+        <div className="text-[11px] font-mono text-pro-gold-300">小组描述</div>
+        <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} placeholder="小组职责、训练目标等"
+          className="w-full px-2.5 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 rounded-sm text-sm text-deep-blue-50 font-mono focus:outline-none focus:border-pro-gold-400 resize-none" />
+      </label>
+      <div className="pt-2 flex justify-end gap-2">
+        <button onClick={onClose} className="px-3 py-1.5 rounded-sm border bg-deep-blue-700 hover:bg-deep-blue-600 border-deep-blue-500 text-deep-blue-200 text-xs font-mono">取消</button>
+        <button onClick={submit} className="px-3 py-1.5 rounded-sm border bg-pro-gold-600 hover:bg-pro-gold-500 border-pro-gold-400 text-white text-xs font-mono shadow-glow-gold">保存</button>
+      </div>
+    </div>
+  );
+};
+
 export const CaseLibrary: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<CrisisCategory | 'all'>('all');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingCase, setEditingCase] = useState<CrisisCase | null>(null);
   const [traineeModal, setTraineeModal] = useState<null | { mode: 'add' | 'edit'; trainee?: Trainee | null }>(null);
+  const [teamTab, setTeamTab] = useState<'trainee' | 'team'>('trainee');
+  const [teamModal, setTeamModal] = useState<null | { mode: 'add' | 'edit'; team?: Team | null }>(null);
+  const [addMemberModal, setAddMemberModal] = useState(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
 
   const {
     selectedCase,
@@ -151,8 +197,19 @@ export const CaseLibrary: React.FC = () => {
     deleteTrainee,
     setCurrentTrainee,
     cloneCase,
-    addCustomCase,
+    teams,
+    currentTeamId,
+    setCurrentTeam,
+    addTeam,
+    updateTeam,
+    deleteTeam,
+    addMemberToTeam,
+    removeMemberFromTeam,
+    getTeamStats,
   } = useTrainingStore();
+
+  const currentTeam = useMemo(() => teams.find(t => t.id === currentTeamId) || null, [teams, currentTeamId]);
+  const teamStats = useMemo(() => currentTeamId ? getTeamStats(currentTeamId) : null, [currentTeamId, getTeamStats]);
 
   const filteredCases = activeCategory === 'all'
     ? allCases
@@ -181,8 +238,7 @@ export const CaseLibrary: React.FC = () => {
     setEditorOpen(true);
   };
 
-  const handleSaveClone = (c: CrisisCase) => {
-    addCustomCase(c);
+  const handleSaveClone = () => {
   };
 
   const previewPressure = computePressure(config.outbreakSpeed, config.mediaAttention);
@@ -215,6 +271,109 @@ export const CaseLibrary: React.FC = () => {
               setTraineeModal(null);
             }}
           />
+        </Modal>
+      )}
+
+      {teamModal && (
+        <Modal
+          title={teamModal.mode === 'add' ? '新建小组' : '编辑小组'}
+          onClose={() => setTeamModal(null)}
+        >
+          <TeamEditor
+            initial={teamModal.team || null}
+            onClose={() => setTeamModal(null)}
+            onSave={(t) => {
+              if (t.id) {
+                const existing = teams.find(x => x.id === t.id)!;
+                updateTeam({ ...existing, ...t });
+              } else {
+                const nt = addTeam({ name: t.name, department: t.department, description: t.description });
+                setCurrentTeam(nt.id);
+              }
+              setTeamModal(null);
+            }}
+          />
+        </Modal>
+      )}
+
+      {addMemberModal && currentTeam && (
+        <Modal
+          title={`向「${currentTeam.name}」添加成员`}
+          onClose={() => { setAddMemberModal(false); setSelectedMemberIds([]); }}
+        >
+          <div className="space-y-3">
+            <div className="text-[11px] font-mono text-deep-blue-300">
+              选择要添加到小组的学员（多选）：
+            </div>
+            {trainees.length === 0 ? (
+              <div className="p-3 rounded-sm bg-deep-blue-800/40 border border-deep-blue-600 text-[11px] font-mono text-deep-blue-400 flex items-center gap-1">
+                <UserPlus size={10} className="text-calm-teal-400" />
+                学员库为空，请先在「学员」Tab中创建学员档案
+              </div>
+            ) : (
+              <div className="max-h-60 overflow-y-auto space-y-1 border border-deep-blue-600 rounded-sm p-1.5 bg-deep-blue-900/30">
+                {trainees.map(t => {
+                  const isInTeam = currentTeam.memberIds.includes(t.id);
+                  const isSelected = selectedMemberIds.includes(t.id);
+                  const disabled = isInTeam;
+                  return (
+                    <label
+                      key={t.id}
+                      className={`flex items-center gap-2 p-2 rounded-sm cursor-pointer transition-colors ${
+                        disabled ? 'bg-deep-blue-700/30 opacity-60 cursor-not-allowed' :
+                        isSelected ? 'bg-calm-teal-500/15 border border-calm-teal-500/40' :
+                        'hover:bg-deep-blue-700/50 border border-transparent'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={disabled || isSelected}
+                        disabled={disabled}
+                        onChange={(e) => {
+                          if (disabled) return;
+                          if (e.target.checked) {
+                            setSelectedMemberIds([...selectedMemberIds, t.id]);
+                          } else {
+                            setSelectedMemberIds(selectedMemberIds.filter(id => id !== t.id));
+                          }
+                        }}
+                        className="accent-pro-gold-400"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[11px] font-mono text-deep-blue-100 truncate">
+                          {t.name}
+                          {t.department && <span className="text-deep-blue-400 ml-1">（{t.department}）</span>}
+                          {t.role && <span className="text-deep-blue-400 ml-1">- {t.role}</span>}
+                        </div>
+                        {disabled && (
+                          <div className="text-[9px] font-mono text-calm-teal-400">已在小组中</div>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <div className="pt-2 flex justify-end gap-2">
+              <button
+                onClick={() => { setAddMemberModal(false); setSelectedMemberIds([]); }}
+                className="px-3 py-1.5 rounded-sm border bg-deep-blue-700 hover:bg-deep-blue-600 border-deep-blue-500 text-deep-blue-200 text-xs font-mono"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  selectedMemberIds.forEach(id => addMemberToTeam(currentTeam.id, id));
+                  setAddMemberModal(false);
+                  setSelectedMemberIds([]);
+                }}
+                disabled={selectedMemberIds.length === 0}
+                className="px-3 py-1.5 rounded-sm border bg-pro-gold-600 hover:bg-pro-gold-500 border-pro-gold-400 text-white text-xs font-mono shadow-glow-gold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                确认添加 ({selectedMemberIds.length})
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
 
@@ -252,77 +411,246 @@ export const CaseLibrary: React.FC = () => {
       >
         <div className="flex flex-col h-full">
           <div className="px-3 py-2 border-b border-deep-blue-500 bg-deep-blue-800/50">
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="flex items-center gap-1.5 text-[11px] font-mono">
-                <Users size={11} className="text-calm-teal-400" />
-                <span className="text-deep-blue-300">培训学员</span>
-              </div>
-              <div className="flex items-center gap-0.5">
-                <button
-                  onClick={() => setTraineeModal({ mode: 'add' })}
-                  className="p-1 text-[9px] font-mono text-calm-teal-400 hover:bg-calm-teal-500/10 rounded-sm flex items-center gap-0.5"
-                  title="新建学员"
-                >
-                  <UserPlus size={11} />
-                  新建
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <select
-                value={currentTraineeId || ''}
-                onChange={(e) => setCurrentTrainee(e.target.value || null)}
-                className="flex-1 px-2 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 text-[11px] font-mono text-deep-blue-100 rounded-sm focus:outline-none focus:border-calm-teal-400"
+            <div className="flex items-center gap-1 mb-2 border-b border-deep-blue-600/60 pb-2">
+              <button
+                onClick={() => setTeamTab('trainee')}
+                className={`px-2.5 py-1 text-[10px] font-mono rounded-sm border flex items-center gap-1 transition-all ${
+                  teamTab === 'trainee'
+                    ? 'bg-calm-teal-500/20 border-calm-teal-500/50 text-calm-teal-400'
+                    : 'border-deep-blue-500 text-deep-blue-300 hover:text-deep-blue-100 hover:bg-deep-blue-700/50'
+                }`}
               >
-                <option value="">— 未指定学员（匿名训练）—</option>
-                {trainees.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}{t.department ? `（${t.department}）` : ''}{t.role ? ` - ${t.role}` : ''}
-                  </option>
-                ))}
-              </select>
-              {currentTrainee && (
-                <>
-                  <button
-                    onClick={() => setTraineeModal({ mode: 'edit', trainee: currentTrainee })}
-                    className="p-1 text-deep-blue-400 hover:text-pro-gold-400 hover:bg-pro-gold-500/10 rounded-sm transition-colors"
-                    title="编辑学员"
-                  >
-                    <Edit size={12} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm(`确定删除学员「${currentTrainee.name}」？该学员的训练记录不会被删除。`)) {
-                        deleteTrainee(currentTrainee.id);
-                      }
-                    }}
-                    className="p-1 text-deep-blue-400 hover:text-alert-red-400 hover:bg-alert-red-500/10 rounded-sm transition-colors"
-                    title="删除学员"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </>
-              )}
+                <User size={10} />
+                学员
+              </button>
+              <button
+                onClick={() => setTeamTab('team')}
+                className={`px-2.5 py-1 text-[10px] font-mono rounded-sm border flex items-center gap-1 transition-all ${
+                  teamTab === 'team'
+                    ? 'bg-calm-teal-500/20 border-calm-teal-500/50 text-calm-teal-400'
+                    : 'border-deep-blue-500 text-deep-blue-300 hover:text-deep-blue-100 hover:bg-deep-blue-700/50'
+                }`}
+              >
+                <Users2 size={10} />
+                小组
+              </button>
             </div>
 
-            {currentTrainee && (
-              <div className="mt-2 text-[10px] font-mono text-deep-blue-300 flex items-center gap-2 flex-wrap">
-                {currentTrainee.role && <span className="px-1.5 py-0.5 rounded-sm bg-deep-blue-700/60 border border-deep-blue-600">岗位: {currentTrainee.role}</span>}
-                {currentTrainee.department && <span className="px-1.5 py-0.5 rounded-sm bg-deep-blue-700/60 border border-deep-blue-600">部门: {currentTrainee.department}</span>}
-                <span className="px-1.5 py-0.5 rounded-sm bg-terminal-green/10 border border-terminal-green/30 text-terminal-green">
-                  <FileText size={9} className="inline -mt-0.5 mr-0.5" />
-                  已完成 {traineeRecordCount} 次训练
-                </span>
-                {currentTrainee.notes && <span className="text-deep-blue-500 w-full truncate">备注：{currentTrainee.notes}</span>}
-              </div>
+            {teamTab === 'trainee' && (
+              <>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-1.5 text-[11px] font-mono">
+                    <Users size={11} className="text-calm-teal-400" />
+                    <span className="text-deep-blue-300">培训学员</span>
+                  </div>
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      onClick={() => setTraineeModal({ mode: 'add' })}
+                      className="p-1 text-[9px] font-mono text-calm-teal-400 hover:bg-calm-teal-500/10 rounded-sm flex items-center gap-0.5"
+                      title="新建学员"
+                    >
+                      <UserPlus size={11} />
+                      新建
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={currentTraineeId || ''}
+                    onChange={(e) => setCurrentTrainee(e.target.value || null)}
+                    className="flex-1 px-2 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 text-[11px] font-mono text-deep-blue-100 rounded-sm focus:outline-none focus:border-calm-teal-400"
+                  >
+                    <option value="">— 未指定学员（匿名训练）—</option>
+                    {trainees.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}{t.department ? `（${t.department}）` : ''}{t.role ? ` - ${t.role}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {currentTrainee && (
+                    <>
+                      <button
+                        onClick={() => setTraineeModal({ mode: 'edit', trainee: currentTrainee })}
+                        className="p-1 text-deep-blue-400 hover:text-pro-gold-400 hover:bg-pro-gold-500/10 rounded-sm transition-colors"
+                        title="编辑学员"
+                      >
+                        <Edit size={12} />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`确定删除学员「${currentTrainee.name}」？该学员的训练记录不会被删除。`)) {
+                            deleteTrainee(currentTrainee.id);
+                          }
+                        }}
+                        className="p-1 text-deep-blue-400 hover:text-alert-red-400 hover:bg-alert-red-500/10 rounded-sm transition-colors"
+                        title="删除学员"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {currentTrainee && (
+                  <div className="mt-2 text-[10px] font-mono text-deep-blue-300 flex items-center gap-2 flex-wrap">
+                    {currentTrainee.role && <span className="px-1.5 py-0.5 rounded-sm bg-deep-blue-700/60 border border-deep-blue-600">岗位: {currentTrainee.role}</span>}
+                    {currentTrainee.department && <span className="px-1.5 py-0.5 rounded-sm bg-deep-blue-700/60 border border-deep-blue-600">部门: {currentTrainee.department}</span>}
+                    <span className="px-1.5 py-0.5 rounded-sm bg-terminal-green/10 border border-terminal-green/30 text-terminal-green">
+                      <FileText size={9} className="inline -mt-0.5 mr-0.5" />
+                      已完成 {traineeRecordCount} 次训练
+                    </span>
+                    {currentTrainee.notes && <span className="text-deep-blue-500 w-full truncate">备注：{currentTrainee.notes}</span>}
+                  </div>
+                )}
+
+                {!currentTrainee && trainees.length === 0 && (
+                  <div className="mt-2 p-1.5 rounded-sm bg-deep-blue-800/40 border border-deep-blue-600 text-[10px] font-mono text-deep-blue-400 flex items-center gap-1">
+                    <UserPlus size={10} className="text-calm-teal-400" />
+                    点击「新建」建立学员档案，训练记录将按学员归档
+                  </div>
+                )}
+              </>
             )}
 
-            {!currentTrainee && trainees.length === 0 && (
-              <div className="mt-2 p-1.5 rounded-sm bg-deep-blue-800/40 border border-deep-blue-600 text-[10px] font-mono text-deep-blue-400 flex items-center gap-1">
-                <UserPlus size={10} className="text-calm-teal-400" />
-                点击「新建」建立学员档案，训练记录将按学员归档
-              </div>
+            {teamTab === 'team' && (
+              <>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-1.5 text-[11px] font-mono">
+                    <Users2 size={11} className="text-calm-teal-400" />
+                    <span className="text-deep-blue-300">培训小组</span>
+                  </div>
+                  <div className="flex items-center gap-0.5">
+                    <button
+                      onClick={() => setTeamModal({ mode: 'add' })}
+                      className="p-1 text-[9px] font-mono text-calm-teal-400 hover:bg-calm-teal-500/10 rounded-sm flex items-center gap-0.5"
+                      title="新建小组"
+                    >
+                      <UserPlus size={11} />
+                      新建
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <select
+                    value={currentTeamId || ''}
+                    onChange={(e) => setCurrentTeam(e.target.value || null)}
+                    className="flex-1 px-2 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 text-[11px] font-mono text-deep-blue-100 rounded-sm focus:outline-none focus:border-calm-teal-400"
+                  >
+                    <option value="">— 请选择小组 —</option>
+                    {teams.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}{t.department ? `（${t.department}）` : ''} · {t.memberIds.length}人
+                      </option>
+                    ))}
+                  </select>
+                  {currentTeam && (
+                    <>
+                      <button
+                        onClick={() => setTeamModal({ mode: 'edit', team: currentTeam })}
+                        className="p-1 text-deep-blue-400 hover:text-pro-gold-400 hover:bg-pro-gold-500/10 rounded-sm transition-colors"
+                        title="编辑小组"
+                      >
+                        <Edit size={12} />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`确定删除小组「${currentTeam.name}」？小组成员档案不会被删除。`)) {
+                            deleteTeam(currentTeam.id);
+                          }
+                        }}
+                        className="p-1 text-deep-blue-400 hover:text-alert-red-400 hover:bg-alert-red-500/10 rounded-sm transition-colors"
+                        title="删除小组"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {!currentTeam && teams.length === 0 && (
+                  <div className="mt-2 p-1.5 rounded-sm bg-deep-blue-800/40 border border-deep-blue-600 text-[10px] font-mono text-deep-blue-400 flex items-center gap-1">
+                    <UserPlus size={10} className="text-calm-teal-400" />
+                    点击「新建」创建培训小组，便于统一管理团队训练
+                  </div>
+                )}
+
+                {currentTeam && teamStats && (
+                  <div className="mt-2 space-y-2">
+                    <div className="flex items-center gap-2 text-[10px] font-mono flex-wrap">
+                      {currentTeam.department && <span className="px-1.5 py-0.5 rounded-sm bg-deep-blue-700/60 border border-deep-blue-600">部门: {currentTeam.department}</span>}
+                      <span className="px-1.5 py-0.5 rounded-sm bg-terminal-green/10 border border-terminal-green/30 text-terminal-green">
+                        <Users size={9} className="inline -mt-0.5 mr-0.5" />
+                        总人数: {teamStats.memberCount}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded-sm bg-pro-gold-500/10 border border-pro-gold-500/30 text-pro-gold-300">
+                        <Target size={9} className="inline -mt-0.5 mr-0.5" />
+                        小组平均分: {teamStats.avgScore || '—'}
+                      </span>
+                      {currentTeam.description && <span className="text-deep-blue-500 w-full truncate">描述：{currentTeam.description}</span>}
+                    </div>
+
+                    <div className="pt-2 border-t border-deep-blue-600/50">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="text-[10px] font-mono text-deep-blue-400">小组成员</div>
+                        <button
+                          onClick={() => setAddMemberModal(true)}
+                          className="px-1.5 py-0.5 text-[9px] font-mono text-calm-teal-400 hover:bg-calm-teal-500/10 rounded-sm flex items-center gap-0.5 border border-calm-teal-500/30"
+                        >
+                          <UserPlus size={9} />
+                          添加成员
+                        </button>
+                      </div>
+
+                      {teamStats.members.length === 0 ? (
+                        <div className="p-2 rounded-sm bg-deep-blue-800/30 border border-deep-blue-600/50 text-[10px] font-mono text-deep-blue-500 text-center">
+                          暂无成员，点击「添加成员」从学员库中选择
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 gap-1.5 max-h-48 overflow-y-auto pr-0.5">
+                          {teamStats.members.map(({ trainee, latestRecord, avgScore, scoreTrend, latestWeakness }) => {
+                            const traineeRecCount = records.filter(r => r.traineeId === trainee.id).length;
+                            return (
+                              <div
+                                key={trainee.id}
+                                className="p-2 rounded-sm border border-deep-blue-600/50 bg-deep-blue-900/30 flex items-start gap-2"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    <span className="text-[11px] font-mono text-deep-blue-100 font-medium">{trainee.name}</span>
+                                    {trainee.role && <span className="text-[9px] font-mono text-deep-blue-400">· {trainee.role}</span>}
+                                    {trainee.department && <span className="text-[9px] font-mono text-deep-blue-400">· {trainee.department}</span>}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1 text-[9px] font-mono flex-wrap">
+                                    <span className="text-deep-blue-400">训练 {traineeRecCount} 次</span>
+                                    <span className="text-pro-gold-300">均分 {avgScore || '—'}</span>
+                                    {scoreTrend === 'up' && <span className="text-terminal-green flex items-center gap-0.5"><TrendingUp size={8} />进步</span>}
+                                    {scoreTrend === 'down' && <span className="text-alert-red-400 flex items-center gap-0.5"><TrendingDown size={8} />退步</span>}
+                                    {scoreTrend === 'flat' && <span className="text-deep-blue-400 flex items-center gap-0.5"><Minus size={8} />平稳</span>}
+                                    {latestWeakness && <span className="text-terminal-amber">短板: {latestWeakness}</span>}
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    if (confirm(`将「${trainee.name}」从小组中移除？`)) {
+                                      removeMemberFromTeam(currentTeam.id, trainee.id);
+                                    }
+                                  }}
+                                  className="p-0.5 text-deep-blue-500 hover:text-alert-red-400 hover:bg-alert-red-500/10 rounded-sm transition-colors flex-shrink-0 mt-0.5"
+                                  title="移出小组"
+                                >
+                                  <UserMinus size={10} />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -369,6 +697,7 @@ export const CaseLibrary: React.FC = () => {
               const origin = caseData.origin || (caseData.id.startsWith('case-') ? 'builtin' : 'custom');
               const originBadge = ORIGIN_BADGES[origin] || ORIGIN_BADGES.custom;
               const showEdit = caseData.origin !== 'builtin';
+              const isCustom = origin !== 'builtin';
 
               return (
                 <div
@@ -391,12 +720,31 @@ export const CaseLibrary: React.FC = () => {
                             源自模板：{caseData.clonedFromTitle}
                           </div>
                         )}
+                        {isCustom && (
+                          <div className="mt-0.5 text-[9px] font-mono text-terminal-amber flex items-center gap-1">
+                            {caseData.versionNote && (
+                              <span className="truncate" title={caseData.versionNote}>
+                                {caseData.versionNote.slice(0, 30)}{caseData.versionNote.length > 30 ? '...' : ''}
+                              </span>
+                            )}
+                            {caseData.updatedAt && (
+                              <span className="text-deep-blue-500 ml-auto flex-shrink-0">
+                                {new Date(caseData.updatedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0 flex-wrap justify-end">
                       <span className={`px-1.5 py-0.5 text-[9px] font-mono rounded-sm border ${originBadge.cls}`}>
                         {originBadge.label}
                       </span>
+                      {isCustom && caseData.currentVersion && (
+                        <span className="px-1.5 py-0.5 text-[9px] font-mono rounded-sm border border-terminal-amber/50 bg-terminal-amber/10 text-terminal-amber whitespace-nowrap">
+                          v{caseData.currentVersion}
+                        </span>
+                      )}
                       <span className={`px-2 py-0.5 text-[10px] font-mono rounded-sm border whitespace-nowrap ${DIFFICULTY_COLORS[caseData.difficulty]}`}>
                         {DIFFICULTY_LABELS[caseData.difficulty]}
                       </span>

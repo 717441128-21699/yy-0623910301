@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   BarChart3,
   Award,
@@ -26,6 +26,8 @@ import {
   Target as TargetIcon,
   ArrowRight,
   Flag,
+  FileDown,
+  Printer,
 } from 'lucide-react';
 import {
   Radar,
@@ -38,7 +40,8 @@ import {
 } from 'recharts';
 import { useTrainingStore } from '../store/trainingStore';
 import { WindowFrame } from './WindowFrame';
-import type { ScoreDimension, SectionReview, CoachReview, PressureLevelInfo, ImprovementPlan } from '../types';
+import type { ScoreDimension, SectionReview, CoachReview, PressureLevelInfo, ImprovementPlan, ReviewResult, CrisisCase, Trainee, TrainingConfig } from '../types';
+import { CATEGORY_LABELS, DIFFICULTY_LABELS, OUTBREAK_SPEEDS, MEDIA_ATTENTIONS } from '../types';
 
 const DIMENSION_ICONS: Record<string, React.ReactNode> = {
   '回应速度': <Clock size={12} />,
@@ -312,6 +315,697 @@ function copyText(text: string) {
   } catch {}
 }
 
+function formatDate(timestamp: number): string {
+  const d = new Date(timestamp);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function countChars(text: string): number {
+  return text?.replace(/\s/g, '').length || 0;
+}
+
+function getScoreLabel(score: number): string {
+  if (score >= 85) return '优秀';
+  if (score >= 70) return '良好';
+  if (score >= 60) return '及格';
+  return '需加强';
+}
+
+interface ReportData {
+  reviewResult: ReviewResult;
+  selectedCase: CrisisCase;
+  currentTrainee: Trainee | null;
+  config: TrainingConfig;
+  createdAt: number;
+  response: {
+    officialResponse: string;
+    qaPoints: string;
+    internalNotice: string;
+  };
+}
+
+function generateTextReport(data: ReportData): string {
+  const { reviewResult, selectedCase, currentTrainee, config, createdAt, response } = data;
+  const lines: string[] = [];
+  const sep = '═══════════════════════════════════════════════════════════';
+  const subSep = '───────────────────────────────────────────────────────────';
+
+  lines.push(sep);
+  lines.push('        企业品牌公关危机回应演练训练报告');
+  lines.push(sep);
+  lines.push('');
+
+  lines.push('【一、基础信息】');
+  lines.push(subSep);
+  lines.push(`  学员姓名：${currentTrainee?.name || '匿名训练'}`);
+  if (currentTrainee?.role || currentTrainee?.department) {
+    const roleDept = [currentTrainee.department, currentTrainee.role].filter(Boolean).join(' / ');
+    lines.push(`  学员岗位/部门：${roleDept}`);
+  }
+  lines.push(`  训练案例：${selectedCase.title}`);
+  lines.push(`  案例分类/难度：${CATEGORY_LABELS[selectedCase.category]} / ${DIFFICULTY_LABELS[selectedCase.difficulty]}`);
+  lines.push(`  训练参数：爆发速度${OUTBREAK_SPEEDS[config.outbreakSpeed - 1]} · 媒体关注度${MEDIA_ATTENTIONS[config.mediaAttention - 1]} · 时长${config.duration}分钟`);
+  lines.push(`  压力等级：Lv.${reviewResult.pressureLevel.level} - ${reviewResult.pressureLevel.label}`);
+  lines.push(`  训练时间：${formatDate(createdAt)}`);
+  lines.push('');
+
+  lines.push('【二、整体评分】');
+  lines.push(subSep);
+  lines.push(`  总分：${reviewResult.totalScore}/100（${getScoreLabel(reviewResult.totalScore)}）`);
+  lines.push(`  击败同场景 ${reviewResult.comparison.percentile}% 的训练者`);
+  lines.push(`  （最佳: ${reviewResult.comparison.bestScore} / 平均: ${reviewResult.comparison.averageScore}）`);
+  lines.push('');
+  lines.push('  四维分数：');
+  const dims = [
+    { name: '回应速度', score: reviewResult.speed.score },
+    { name: '事实完整度', score: reviewResult.factuality.score },
+    { name: '态度温度', score: reviewResult.attitude.score },
+    { name: '风险词使用', score: reviewResult.riskWords.score },
+  ];
+  dims.forEach((d, i) => {
+    lines.push(`    ${i + 1}. ${d.name}：${d.score}/100（${getScoreLabel(d.score)}）`);
+  });
+  lines.push('');
+
+  lines.push('【三、学员提交内容】');
+  lines.push(subSep);
+  lines.push('');
+  lines.push(`  3.1 第一版官方回应（${countChars(response.officialResponse)}字）`);
+  lines.push('');
+  lines.push(response.officialResponse.split('\n').map(l => `    ${l}`).join('\n'));
+  lines.push('');
+  lines.push(`  3.2 媒体问答口径（${countChars(response.qaPoints)}字）`);
+  lines.push('');
+  lines.push(response.qaPoints.split('\n').map(l => `    ${l}`).join('\n'));
+  lines.push('');
+  lines.push(`  3.3 内部通报要点（${countChars(response.internalNotice)}字）`);
+  lines.push('');
+  lines.push(response.internalNotice.split('\n').map(l => `    ${l}`).join('\n'));
+  lines.push('');
+
+  if (reviewResult.coachReview) {
+    lines.push('【四、教练点评】');
+    lines.push(subSep);
+    lines.push('');
+    lines.push('  ▶ 教练总评');
+    lines.push(`  ${reviewResult.coachReview.overallFeedback}`);
+    lines.push('');
+
+    const sections: { key: 'official' | 'qa' | 'internal'; title: string; num: string }[] = [
+      { key: 'official', title: '第一版官方回应', num: '4.1' },
+      { key: 'qa', title: '媒体问答口径', num: '4.2' },
+      { key: 'internal', title: '内部通报要点', num: '4.3' },
+    ];
+
+    sections.forEach(s => {
+      const rev = reviewResult.coachReview![s.key];
+      lines.push(`  ▶ ${s.num} ${s.title}【得分：${rev.score.toFixed(0)}/100】`);
+      if (rev.strengths.length > 0) {
+        lines.push(`    · 亮点：`);
+        rev.strengths.forEach(st => lines.push(`      - ${st}`));
+      }
+      if (rev.missingPoints.length > 0) {
+        lines.push(`    · 缺失点：`);
+        rev.missingPoints.forEach(mp => {
+          const imp = mp.importance === 'essential' ? '【必答】' : mp.importance === 'important' ? '【重要】' : '【加分】';
+          lines.push(`      - ${imp} ${mp.point}`);
+        });
+      }
+      if (rev.revisionAdvice) {
+        lines.push(`    · 修改建议：${rev.revisionAdvice}`);
+      }
+      if (rev.suggestedSnippet) {
+        lines.push(`    · 参考片段：`);
+        lines.push(rev.suggestedSnippet.split('\n').map(l => `      ${l}`).join('\n'));
+      }
+      lines.push('');
+    });
+  }
+
+  if (reviewResult.improvementPlan) {
+    const plan = reviewResult.improvementPlan;
+    lines.push('【五、改进计划】');
+    lines.push(subSep);
+    lines.push('');
+    lines.push('  ▶ 总体目标');
+    lines.push(`  ${plan.overallGoal}`);
+    lines.push('');
+    lines.push('  ▶ 重点突破方向');
+    plan.focusPoints.forEach((p, i) => {
+      const pri = p.priority === 'high' ? '【高】' : p.priority === 'medium' ? '【中】' : '【低】';
+      lines.push(`    ${i + 1}. ${pri} ${p.dimension}`);
+      lines.push(`       当前分：${p.currentScore} / 差距：${p.gap}`);
+      lines.push(`       行动：${p.action}`);
+    });
+    lines.push('');
+    lines.push('  ▶ 三段回应具体建议');
+    lines.push('    · 官方回应：');
+    plan.sectionAdvice.official.forEach(a => lines.push(`      - ${a}`));
+    lines.push('    · 问答口径：');
+    plan.sectionAdvice.qa.forEach(a => lines.push(`      - ${a}`));
+    lines.push('    · 内部通报：');
+    plan.sectionAdvice.internal.forEach(a => lines.push(`      - ${a}`));
+    lines.push('');
+    lines.push('  ▶ 下一次练习建议');
+    lines.push(`  ${plan.nextPracticeSuggestion}`);
+    lines.push('');
+  }
+
+  if (reviewResult.riskPhrases.length > 0) {
+    lines.push('【六、风险表述提醒】');
+    lines.push(subSep);
+    lines.push('');
+    reviewResult.riskPhrases.forEach((r, i) => {
+      const sev = r.severity === 'high' ? '【高危】' : r.severity === 'medium' ? '【中危】' : '【低危】';
+      lines.push(`  ${i + 1}. ${sev} "${r.text}"`);
+      lines.push(`     建议：${r.suggestion}`);
+    });
+    lines.push('');
+  }
+
+  lines.push(sep);
+  lines.push(`  报告生成时间：${formatDate(Date.now())}`);
+  lines.push(sep);
+
+  return lines.join('\n');
+}
+
+function generateHTMLReport(data: ReportData): string {
+  const { reviewResult, selectedCase, currentTrainee, config, createdAt, response } = data;
+  const scoreLabel = getScoreLabel(reviewResult.totalScore);
+
+  const sections: { key: 'official' | 'qa' | 'internal'; title: string; num: string }[] = [
+    { key: 'official', title: '第一版官方回应', num: '4.1' },
+    { key: 'qa', title: '媒体问答口径', num: '4.2' },
+    { key: 'internal', title: '内部通报要点', num: '4.3' },
+  ];
+
+  const dims = [
+    { name: '回应速度', score: reviewResult.speed.score },
+    { name: '事实完整度', score: reviewResult.factuality.score },
+    { name: '态度温度', score: reviewResult.attitude.score },
+    { name: '风险词使用', score: reviewResult.riskWords.score },
+  ];
+
+  const scoreColor = (s: number) => s >= 85 ? '#2a9d8f' : s >= 70 ? '#d4a373' : s >= 60 ? '#ffb000' : '#e63946';
+  const sevColor = (s: string) => s === 'high' ? '#e63946' : s === 'medium' ? '#ffb000' : '#4a6591';
+  const sevLabel = (s: string) => s === 'high' ? '高危' : s === 'medium' ? '中危' : '低危';
+  const impLabel = (i: string) => i === 'essential' ? '必答' : i === 'important' ? '重要' : '加分';
+  const priLabel = (p: string) => p === 'high' ? '高' : p === 'medium' ? '中' : '低';
+
+  const sectionsHtml = reviewResult.coachReview ? sections.map(s => {
+    const rev = reviewResult.coachReview![s.key];
+    return `
+    <div class="section-card">
+      <h3>${s.num} ${s.title} <span class="score-badge" style="color: ${scoreColor(rev.score)}">得分：${rev.score.toFixed(0)}/100</span></h3>
+      ${rev.strengths.length > 0 ? `
+        <div class="sub-section">
+          <h4 class="tag-green">✓ 亮点</h4>
+          <ul>${rev.strengths.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>
+        </div>` : ''}
+      ${rev.missingPoints.length > 0 ? `
+        <div class="sub-section">
+          <h4 class="tag-red">✗ 缺失点</h4>
+          <ul>${rev.missingPoints.map(x => `<li><span class="imp-tag" style="color: ${x.importance === 'essential' ? '#e63946' : x.importance === 'important' ? '#ffb000' : '#2a9d8f'}">【${impLabel(x.importance)}】</span>${escapeHtml(x.point)}</li>`).join('')}</ul>
+        </div>` : ''}
+      ${rev.revisionAdvice ? `
+        <div class="sub-section">
+          <h4 class="tag-amber">✎ 修改建议</h4>
+          <p>${escapeHtml(rev.revisionAdvice)}</p>
+        </div>` : ''}
+      ${rev.suggestedSnippet ? `
+        <div class="sub-section">
+          <h4>↳ 参考片段</h4>
+          <pre class="code-block">${escapeHtml(rev.suggestedSnippet)}</pre>
+        </div>` : ''}
+    </div>`;
+  }).join('') : '';
+
+  const planHtml = reviewResult.improvementPlan ? `
+    <div class="main-section">
+      <h2>五、改进计划</h2>
+      <div class="section-card">
+        <h3>总体目标</h3>
+        <p>${escapeHtml(reviewResult.improvementPlan.overallGoal)}</p>
+      </div>
+      <div class="section-card">
+        <h3>重点突破方向</h3>
+        <table class="data-table">
+          <thead><tr><th>序号</th><th>优先级</th><th>维度</th><th>当前分</th><th>差距</th><th>行动</th></tr></thead>
+          <tbody>
+            ${reviewResult.improvementPlan.focusPoints.map((p, i) => `
+              <tr>
+                <td>${i + 1}</td>
+                <td><span style="color:${p.priority === 'high' ? '#e63946' : p.priority === 'medium' ? '#ffb000' : '#2a9d8f'}">${priLabel(p.priority)}</span></td>
+                <td>${escapeHtml(p.dimension)}</td>
+                <td style="color:${scoreColor(p.currentScore)};font-weight:bold">${p.currentScore}</td>
+                <td>${escapeHtml(p.gap)}</td>
+                <td>${escapeHtml(p.action)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="section-card">
+        <h3>三段回应具体建议</h3>
+        <div class="three-col">
+          <div>
+            <h4 class="tag-teal">官方回应</h4>
+            <ul>${reviewResult.improvementPlan.sectionAdvice.official.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
+          </div>
+          <div>
+            <h4 class="tag-gold">问答口径</h4>
+            <ul>${reviewResult.improvementPlan.sectionAdvice.qa.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
+          </div>
+          <div>
+            <h4 class="tag-amber">内部通报</h4>
+            <ul>${reviewResult.improvementPlan.sectionAdvice.internal.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
+          </div>
+        </div>
+      </div>
+      <div class="section-card highlight-card">
+        <h3>✨ 下一次练习建议</h3>
+        <p>${escapeHtml(reviewResult.improvementPlan.nextPracticeSuggestion)}</p>
+      </div>
+    </div>` : '';
+
+  const riskHtml = reviewResult.riskPhrases.length > 0 ? `
+    <div class="main-section">
+      <h2>六、风险表述提醒</h2>
+      <div class="section-card">
+        <table class="data-table">
+          <thead><tr><th>序号</th><th>风险等级</th><th>风险表述</th><th>修改建议</th></tr></thead>
+          <tbody>
+            ${reviewResult.riskPhrases.map((r, i) => `
+              <tr>
+                <td>${i + 1}</td>
+                <td><span style="color:${sevColor(r.severity)};font-weight:bold">${sevLabel(r.severity)}</span></td>
+                <td class="mono-bold" style="color:${sevColor(r.severity)}">"${escapeHtml(r.text)}"</td>
+                <td>${escapeHtml(r.suggestion)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : '';
+
+  const traineeRoleDept = [currentTrainee?.department, currentTrainee?.role].filter(Boolean).join(' / ');
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>训练报告 - ${escapeHtml(selectedCase.title)}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: #f5f7fa;
+    color: #1a2540;
+    line-height: 1.6;
+    padding: 24px;
+  }
+  .container { max-width: 960px; margin: 0 auto; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+  .header-bar {
+    background: linear-gradient(135deg, #0f1e3d 0%, #1a3a6e 100%);
+    color: #fff;
+    padding: 32px 40px;
+  }
+  .header-bar h1 { font-size: 22px; font-weight: 600; letter-spacing: 2px; margin-bottom: 4px; }
+  .header-bar .subtitle { opacity: 0.75; font-size: 13px; }
+  .print-bar {
+    background: #eef2f8;
+    padding: 12px 40px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid #d8e0ec;
+  }
+  .print-btn {
+    background: #1a3a6e;
+    color: #fff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .print-btn:hover { background: #254a8a; }
+  .content { padding: 32px 40px; }
+  .main-section { margin-bottom: 28px; }
+  .main-section > h2 {
+    font-size: 17px;
+    color: #0f1e3d;
+    padding-bottom: 10px;
+    margin-bottom: 16px;
+    border-bottom: 2px solid #1a3a6e;
+  }
+  .section-card {
+    background: #fafbfd;
+    border: 1px solid #e4e9f2;
+    border-radius: 6px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+  }
+  .section-card h3 { font-size: 14px; color: #0f1e3d; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  .section-card h4 { font-size: 13px; color: #4a6591; margin: 10px 0 6px; }
+  .section-card p { font-size: 13px; color: #2d3a54; }
+  .sub-section { margin: 10px 0; }
+  .sub-section h4 { font-size: 13px; margin-bottom: 6px; }
+  .tag-green { color: #2a9d8f; }
+  .tag-red { color: #e63946; }
+  .tag-amber { color: #c68900; }
+  .tag-teal { color: #2a9d8f; }
+  .tag-gold { color: #a67835; }
+  .score-badge { font-size: 13px; font-weight: 600; }
+  .imp-tag { font-weight: 600; margin-right: 6px; }
+  .mono-bold { font-family: "JetBrains Mono", "SF Mono", Consolas, monospace; }
+  .code-block {
+    font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
+    background: #131d35;
+    color: #e0ebff;
+    padding: 12px 14px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    line-height: 1.55;
+  }
+  ul { list-style: none; padding-left: 0; }
+  ul li {
+    font-size: 13px;
+    color: #2d3a54;
+    padding: 3px 0 3px 18px;
+    position: relative;
+  }
+  ul li::before {
+    content: "·";
+    position: absolute;
+    left: 6px;
+    color: #4a6591;
+    font-weight: bold;
+  }
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 24px;
+  }
+  .info-row {
+    display: flex;
+    font-size: 13px;
+    padding: 4px 0;
+    border-bottom: 1px dashed #e4e9f2;
+  }
+  .info-label {
+    color: #6b7a99;
+    width: 110px;
+    flex-shrink: 0;
+  }
+  .info-value {
+    color: #1a2540;
+    font-weight: 500;
+  }
+  .score-hero {
+    display: flex;
+    align-items: center;
+    gap: 32px;
+    margin-bottom: 16px;
+  }
+  .score-circle {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: conic-gradient(${scoreColor(reviewResult.totalScore)} ${reviewResult.totalScore}%, #e4e9f2 0);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .score-circle-inner {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .score-num { font-size: 32px; font-weight: 700; color: ${scoreColor(reviewResult.totalScore)}; line-height: 1; }
+  .score-label-text { font-size: 12px; color: #6b7a99; margin-top: 4px; }
+  .score-summary { flex: 1; }
+  .score-summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 14px; border-bottom: 1px dashed #e4e9f2; }
+  .dim-bar-wrap { margin: 8px 0; }
+  .dim-bar-label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+  .dim-bar { height: 10px; background: #e4e9f2; border-radius: 5px; overflow: hidden; }
+  .dim-bar-fill { height: 100%; border-radius: 5px; transition: width 0.4s; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .three-col > div { padding: 12px; background: #fff; border: 1px solid #e4e9f2; border-radius: 4px; }
+  .highlight-card {
+    background: linear-gradient(135deg, #fff8e8 0%, #fdf1d1 100%);
+    border-color: #f0d78c;
+  }
+  .response-text {
+    font-family: "JetBrains Mono", "SF Mono", Consolas, monospace;
+    font-size: 12px;
+    background: #f7f9fc;
+    border: 1px solid #e4e9f2;
+    padding: 12px 14px;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    line-height: 1.6;
+    color: #1a2540;
+  }
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .data-table th, .data-table td {
+    padding: 8px 12px;
+    border: 1px solid #e4e9f2;
+    text-align: left;
+    vertical-align: top;
+  }
+  .data-table th {
+    background: #eef2f8;
+    color: #0f1e3d;
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .data-table tr:nth-child(even) td { background: #fafbfd; }
+  .footer {
+    background: #0f1e3d;
+    color: rgba(255,255,255,0.6);
+    padding: 14px 40px;
+    font-size: 12px;
+    text-align: center;
+  }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .container { box-shadow: none; }
+    .print-bar { display: none; }
+    .header-bar { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .highlight-card { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .score-circle { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .dim-bar-fill { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .code-block { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .section-card { break-inside: avoid; }
+    .main-section { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header-bar">
+    <h1>企业品牌公关危机回应演练训练报告</h1>
+    <div class="subtitle">PR Crisis Response Training Report · 企业内部培训专用</div>
+  </div>
+  <div class="print-bar">
+    <span style="font-size:12px;color:#6b7a99">报告编号：RPT-${Date.now()}</span>
+    <button class="print-btn" onclick="window.print()">🖨️ 打印此页</button>
+  </div>
+  <div class="content">
+
+    <div class="main-section">
+      <h2>一、基础信息</h2>
+      <div class="section-card">
+        <div class="info-grid">
+          <div class="info-row"><span class="info-label">学员姓名</span><span class="info-value">${escapeHtml(currentTrainee?.name || '匿名训练')}</span></div>
+          ${traineeRoleDept ? `<div class="info-row"><span class="info-label">岗位/部门</span><span class="info-value">${escapeHtml(traineeRoleDept)}</span></div>` : '<div></div>'}
+          <div class="info-row"><span class="info-label">训练案例</span><span class="info-value">${escapeHtml(selectedCase.title)}</span></div>
+          <div class="info-row"><span class="info-label">分类/难度</span><span class="info-value">${CATEGORY_LABELS[selectedCase.category]} / ${DIFFICULTY_LABELS[selectedCase.difficulty]}</span></div>
+          <div class="info-row"><span class="info-label">爆发速度</span><span class="info-value">${OUTBREAK_SPEEDS[config.outbreakSpeed - 1]}</span></div>
+          <div class="info-row"><span class="info-label">媒体关注度</span><span class="info-value">${MEDIA_ATTENTIONS[config.mediaAttention - 1]}</span></div>
+          <div class="info-row"><span class="info-label">训练时长</span><span class="info-value">${config.duration} 分钟</span></div>
+          <div class="info-row"><span class="info-label">压力等级</span><span class="info-value" style="color:${scoreColor(100 - reviewResult.pressureLevel.level * 20)}">Lv.${reviewResult.pressureLevel.level} - ${escapeHtml(reviewResult.pressureLevel.label)}</span></div>
+          <div class="info-row" style="grid-column: 1 / -1"><span class="info-label">训练时间</span><span class="info-value">${formatDate(createdAt)}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="main-section">
+      <h2>二、整体评分</h2>
+      <div class="section-card">
+        <div class="score-hero">
+          <div class="score-circle">
+            <div class="score-circle-inner">
+              <div class="score-num">${reviewResult.totalScore}</div>
+              <div class="score-label-text">${scoreLabel}</div>
+            </div>
+          </div>
+          <div class="score-summary" style="flex:1">
+            <div class="score-summary-row"><span>击败同场景训练者</span><strong style="color:#2a9d8f">${reviewResult.comparison.percentile}%</strong></div>
+            <div class="score-summary-row"><span>最佳分数</span><strong>${reviewResult.comparison.bestScore}</strong></div>
+            <div class="score-summary-row"><span>平均分数</span><strong>${reviewResult.comparison.averageScore}</strong></div>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <h4 style="font-size:13px;color:#4a6591;margin-bottom:10px">四维分数明细</h4>
+          ${dims.map(d => `
+            <div class="dim-bar-wrap">
+              <div class="dim-bar-label">
+                <span>${d.name}</span>
+                <span style="font-weight:600;color:${scoreColor(d.score)}">${d.score}/100 · ${getScoreLabel(d.score)}</span>
+              </div>
+              <div class="dim-bar"><div class="dim-bar-fill" style="width:${d.score}%;background:${scoreColor(d.score)}"></div></div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+
+    <div class="main-section">
+      <h2>三、学员提交内容</h2>
+      <div class="section-card">
+        <h3>3.1 第一版官方回应 <span class="score-badge" style="color:#4a6591;font-weight:500">${countChars(response.officialResponse)} 字</span></h3>
+        <div class="response-text">${escapeHtml(response.officialResponse)}</div>
+      </div>
+      <div class="section-card">
+        <h3>3.2 媒体问答口径 <span class="score-badge" style="color:#4a6591;font-weight:500">${countChars(response.qaPoints)} 字</span></h3>
+        <div class="response-text">${escapeHtml(response.qaPoints)}</div>
+      </div>
+      <div class="section-card">
+        <h3>3.3 内部通报要点 <span class="score-badge" style="color:#4a6591;font-weight:500">${countChars(response.internalNotice)} 字</span></h3>
+        <div class="response-text">${escapeHtml(response.internalNotice)}</div>
+      </div>
+    </div>
+
+    ${reviewResult.coachReview ? `
+    <div class="main-section">
+      <h2>四、教练点评</h2>
+      <div class="section-card highlight-card">
+        <h3>教练总评</h3>
+        <p style="font-size:14px">${escapeHtml(reviewResult.coachReview.overallFeedback)}</p>
+        ${reviewResult.coachReview.focusAreas.length > 0 ? `
+          <div class="sub-section">
+            <h4 class="tag-amber">下一轮强化训练重点</h4>
+            <ol style="padding-left:20px">
+              ${reviewResult.coachReview.focusAreas.map(a => `<li style="padding:2px 0;font-size:13px">${escapeHtml(a)}</li>`).join('')}
+            </ol>
+          </div>` : ''}
+      </div>
+      ${sectionsHtml}
+    </div>` : ''}
+
+    ${planHtml}
+    ${riskHtml}
+
+  </div>
+  <div class="footer">
+    本报告由企业品牌公关危机回应演练系统自动生成 · 生成时间 ${formatDate(Date.now())} · 仅供内部培训参考
+  </div>
+</div>
+</body>
+</html>`;
+}
+
+function escapeHtml(text: string): string {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+interface ExportReportProps {
+  reviewResult: ReviewResult;
+  selectedCase: CrisisCase;
+  currentTrainee: Trainee | null;
+  config: TrainingConfig;
+  createdAt: number;
+  response: {
+    officialResponse: string;
+    qaPoints: string;
+    internalNotice: string;
+  };
+}
+
+const ExportReportButtons: React.FC<ExportReportProps> = (props) => {
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'success'>('idle');
+
+  const buildData = (): ReportData => ({
+    reviewResult: props.reviewResult,
+    selectedCase: props.selectedCase,
+    currentTrainee: props.currentTrainee,
+    config: props.config,
+    createdAt: props.createdAt,
+    response: props.response,
+  });
+
+  const handleCopy = useCallback(() => {
+    try {
+      const text = generateTextReport(buildData());
+      navigator.clipboard.writeText(text).then(() => {
+        setCopyStatus('success');
+        setTimeout(() => setCopyStatus('idle'), 2000);
+      });
+    } catch {}
+  }, [props]);
+
+  const handlePreview = useCallback(() => {
+    try {
+      const html = generateHTMLReport(buildData());
+      const w = window.open('', '_blank', 'width=980,height=800');
+      if (w) {
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+      }
+    } catch {}
+  }, [props]);
+
+  return (
+    <div className="rounded-sm border border-calm-teal-500/40 bg-calm-teal-500/8 overflow-hidden">
+      <div className="px-3 py-2 bg-deep-blue-900/50 border-b border-deep-blue-500 flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <FileDown size={12} className="text-calm-teal-400" />
+          <span className="text-[11px] font-serif-cn text-calm-teal-300">训练报告导出</span>
+        </div>
+        <span className="text-[9px] font-mono text-deep-blue-400">EXPORT</span>
+      </div>
+      <div className="p-2 flex gap-2">
+        <button
+          onClick={handleCopy}
+          className={`flex-1 px-3 py-2 rounded-sm border text-[11px] font-mono flex items-center justify-center gap-1.5 transition-all ${
+            copyStatus === 'success'
+              ? 'border-terminal-green text-terminal-green bg-terminal-green/10'
+              : 'border-deep-blue-500 text-deep-blue-200 bg-deep-blue-900/50 hover:border-calm-teal-500/50 hover:text-calm-teal-400 hover:bg-calm-teal-500/10'
+          }`}
+        >
+          <Copy size={12} />
+          {copyStatus === 'success' ? '✓ 已复制' : '复制为文本报告'}
+        </button>
+        <button
+          onClick={handlePreview}
+          className="flex-1 px-3 py-2 rounded-sm border border-deep-blue-500 text-deep-blue-200 bg-deep-blue-900/50 hover:border-pro-gold-500/50 hover:text-pro-gold-400 hover:bg-pro-gold-500/10 text-[11px] font-mono flex items-center justify-center gap-1.5 transition-all"
+        >
+          <Printer size={12} />
+          生成报告（预览）
+        </button>
+      </div>
+    </div>
+  );
+};
+
 function SectionReviewCard({
   title,
   icon,
@@ -495,10 +1189,20 @@ function CoachSummaryCard({ coach, pressure }: { coach: CoachReview; pressure: P
 }
 
 export const ReviewPanel: React.FC = () => {
-  const { phase, reviewResult, selectedCase, response } = useTrainingStore();
+  const { phase, reviewResult, selectedCase, response, currentTrainee, config, records } = useTrainingStore();
   const [showIdeal, setShowIdeal] = useState(false);
   const [idealTab, setIdealTab] = useState<'official' | 'qa' | 'internal'>('official');
   const [coachTab, setCoachTab] = useState<'summary' | 'sections'>('summary');
+
+  const trainingCreatedAt = (() => {
+    if (!selectedCase || !reviewResult) return Date.now();
+    const match = records.find(r =>
+      r.caseId === selectedCase.id &&
+      r.totalScore === reviewResult.totalScore &&
+      r.traineeId === currentTrainee?.id
+    );
+    return match?.createdAt || Date.now();
+  })();
 
   const radarData = reviewResult
     ? [
@@ -706,6 +1410,23 @@ export const ReviewPanel: React.FC = () => {
                     />
                   </div>
                 )}
+              </div>
+            )}
+
+            {selectedCase && (
+              <div className="p-3 border-b border-deep-blue-500 space-y-2">
+                <ExportReportButtons
+                  reviewResult={reviewResult}
+                  selectedCase={selectedCase}
+                  currentTrainee={currentTrainee}
+                  config={config}
+                  createdAt={trainingCreatedAt}
+                  response={{
+                    officialResponse: response.officialResponse,
+                    qaPoints: response.qaPoints,
+                    internalNotice: response.internalNotice,
+                  }}
+                />
               </div>
             )}
 

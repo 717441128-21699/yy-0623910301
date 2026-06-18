@@ -35,6 +35,23 @@ export interface OpinionItem {
 
 export type CaseOrigin = 'builtin' | 'custom' | 'cloned';
 
+export interface Team {
+  id: string;
+  name: string;
+  description?: string;
+  department?: string;
+  memberIds: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CaseVersion {
+  version: number;
+  versionNote: string;
+  updatedAt: number;
+  snapshot: CrisisCase;
+}
+
 export interface CrisisCase {
   id: string;
   title: string;
@@ -48,6 +65,10 @@ export interface CrisisCase {
   origin?: CaseOrigin;
   clonedFromId?: string;
   clonedFromTitle?: string;
+  currentVersion?: number;
+  versionNote?: string;
+  updatedAt?: number;
+  versions?: CaseVersion[];
   opinionStream: OpinionItem[];
   keywords: string[];
   idealResponse: {
