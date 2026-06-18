@@ -1,12 +1,23 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Shield, AlertOctagon, Terminal } from 'lucide-react';
 import { CaseLibrary } from '../components/CaseLibrary';
 import { OpinionStream } from '../components/OpinionStream';
 import { ReviewPanel } from '../components/ReviewPanel';
+import { TrainingRecords } from '../components/TrainingRecords';
 import { useTrainingStore } from '../store/trainingStore';
 
 const Home: React.FC = () => {
-  const { phase } = useTrainingStore();
+  const { phase, activePanel, resetTraining } = useTrainingStore();
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (confirm('确定重置当前演练吗？')) resetTraining();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [resetTraining]);
 
   const phaseLabel: Record<string, { text: string; color: string }> = {
     idle: { text: '待命', color: 'text-deep-blue-400' },
@@ -60,7 +71,7 @@ const Home: React.FC = () => {
 
       <main className="flex-1 flex overflow-hidden p-3 gap-3">
         <div className="w-[360px] flex-shrink-0 h-full">
-          <CaseLibrary />
+          {activePanel === 'case' ? <CaseLibrary /> : <TrainingRecords />}
         </div>
         <div className="flex-1 h-full min-w-0">
           <OpinionStream />
