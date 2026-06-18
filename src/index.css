@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Noto+Serif+SC:wght@400;500;600;700&display=swap');
+
+:root {
+  font-family: 'JetBrains Mono', 'Noto Serif SC', -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2d4873 #0d1426;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #0d1426;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #2d4873;
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #4a6591;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: #070a16;
+}
+
+body {
+  background-image:
+    radial-gradient(ellipse at 20% 50%, rgba(230, 57, 70, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(212, 163, 115, 0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 100%, rgba(42, 157, 143, 0.03) 0%, transparent 60%);
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  background: #1a2744;
+  height: 6px;
+  border-radius: 3px;
+  border: 1px solid #2d4873;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -5px;
+  background-color: #d4a373;
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  border: 2px solid #1a2744;
+  box-shadow: 0 0 8px rgba(212, 163, 115, 0.5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 12px rgba(212, 163, 115, 0.7);
+}
+
+input[type="range"]::-moz-range-track {
+  background: #1a2744;
+  height: 6px;
+  border-radius: 3px;
+  border: 1px solid #2d4873;
+}
+
+input[type="range"]::-moz-range-thumb {
+  background-color: #d4a373;
+  height: 14px;
+  width: 14px;
+  border-radius: 50%;
+  border: 2px solid #1a2744;
+  box-shadow: 0 0 8px rgba(212, 163, 115, 0.5);
+}
+
+textarea::placeholder {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s ease-out;
+}
+
+.recharts-polar-angle-axis-tick text,
+.recharts-polar-radius-axis-tick text {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+.recharts-tooltip-wrapper {
+  outline: none;
+}
