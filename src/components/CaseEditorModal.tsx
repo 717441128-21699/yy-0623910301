@@ -18,7 +18,7 @@ import {
   History,
 } from 'lucide-react';
 import type { CrisisCase, OpinionItem, CaseCategory, DifficultyLevel, OpinionSource, Sentiment } from '../types';
-import { CASE_CATEGORIES, DIFFICULTY_LEVELS, SOURCE_LABELS } from '../types';
+import { CASE_CATEGORIES, DIFFICULTY_LEVELS, SOURCE_LABELS, CATEGORY_LABELS, DIFFICULTY_LABELS } from '../types';
 import { useTrainingStore } from '../store/trainingStore';
 
 interface Props {
@@ -145,6 +145,7 @@ export const CaseEditorModal: React.FC<Props> = ({ isOpen, onClose, initialCase,
   const [errors, setErrors] = useState<string[]>([]);
   const [versionNote, setVersionNote] = useState('');
   const [viewingVersion, setViewingVersion] = useState<number | null>(null);
+  const [showDiff, setShowDiff] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -154,6 +155,7 @@ export const CaseEditorModal: React.FC<Props> = ({ isOpen, onClose, initialCase,
       setKeywordInput('');
       setVersionNote('');
       setViewingVersion(null);
+      setShowDiff(false);
     }
   }, [isOpen, initialCase]);
 
@@ -641,32 +643,125 @@ export const CaseEditorModal: React.FC<Props> = ({ isOpen, onClose, initialCase,
                     </button>
                   ))}
                 </div>
-                {viewingVersion !== null && caseData.versions[viewingVersion] && (
-                  <div className="p-2 rounded-sm border border-deep-blue-600 bg-deep-blue-900/50 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="text-[10px] font-mono text-pro-gold-300">
-                        v{caseData.versions[viewingVersion].version} · {caseData.versions[viewingVersion].versionNote}
+                {viewingVersion !== null && caseData.versions[viewingVersion] && (() => {
+                  const snap = caseData.versions[viewingVersion].snapshot;
+                  const ver = caseData.versions[viewingVersion];
+                  const negCount = snap.opinionStream.filter(o => o.sentiment === 'negative').length;
+                  const sentimentBadge = (s: Sentiment) => {
+                    if (s === 'negative') return <span className="px-1 rounded-sm bg-alert-red-500/15 text-alert-red-400 text-[9px]">负面</span>;
+                    if (s === 'positive') return <span className="px-1 rounded-sm bg-calm-teal-500/15 text-calm-teal-400 text-[9px]">正面</span>;
+                    return <span className="px-1 rounded-sm bg-deep-blue-500/20 text-deep-blue-300 text-[9px]">中性</span>;
+                  };
+                  const diffRow = (label: string, oldVal: string | number, newVal: string | number, isText = false) => {
+                    const changed = String(oldVal) !== String(newVal);
+                    return (
+                      <div className="flex items-center gap-2 text-[10px] font-mono">
+                        <span className="text-deep-blue-400 w-16 shrink-0">{label}</span>
+                        <span className={changed ? 'text-alert-red-400' : 'text-deep-blue-300'}>{oldVal}</span>
+                        {changed && (
+                          <>
+                            <span className="text-deep-blue-500">→</span>
+                            <span className="text-calm-teal-400">{newVal}</span>
+                          </>
+                        )}
+                        {!changed && <span className="text-deep-blue-600">无变化</span>}
                       </div>
-                      <button
-                        onClick={() => {
-                          const restored = restoreCaseVersion(caseData.id, viewingVersion);
-                          if (restored) {
-                            setCaseData(JSON.parse(JSON.stringify(restored)));
-                            setVersionNote(`回退至 v${caseData.versions![viewingVersion].version}`);
-                            setViewingVersion(null);
-                          }
-                        }}
-                        className="px-2 py-0.5 rounded-sm bg-alert-red-500/10 border border-alert-red-500/30 text-alert-red-400 text-[9px] font-mono hover:bg-alert-red-500/20"
-                      >
-                        回退到此版本
-                      </button>
+                    );
+                  };
+                  return (
+                    <div className="p-2.5 rounded-sm border border-deep-blue-600 bg-deep-blue-900/50 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="text-[10px] font-mono text-pro-gold-300">
+                          v{ver.version} · {ver.versionNote}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setShowDiff(d => !d)}
+                            className="px-2 py-0.5 rounded-sm bg-deep-blue-700/60 border border-deep-blue-500 text-deep-blue-200 text-[9px] font-mono hover:bg-deep-blue-600/60"
+                          >
+                            {showDiff ? '收起差异' : '查看与当前版差异'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              const restored = restoreCaseVersion(caseData.id, viewingVersion);
+                              if (restored) {
+                                setCaseData(JSON.parse(JSON.stringify(restored)));
+                                setVersionNote(`回退至 v${caseData.versions![viewingVersion].version}`);
+                                setViewingVersion(null);
+                                setShowDiff(false);
+                              }
+                            }}
+                            className="px-2 py-0.5 rounded-sm bg-alert-red-500/10 border border-alert-red-500/30 text-alert-red-400 text-[9px] font-mono hover:bg-alert-red-500/20"
+                          >
+                            回退到此版本
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 text-[10px] font-mono">
+                        <div className="text-pro-gold-300/80 text-[9px] border-b border-deep-blue-700 pb-0.5 mb-1">基本信息</div>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                          <div><span className="text-deep-blue-400">标题：</span><span className="text-deep-blue-100">{snap.title}</span></div>
+                          <div><span className="text-deep-blue-400">分类：</span><span className="text-deep-blue-100">{CATEGORY_LABELS[snap.category]}</span></div>
+                          <div><span className="text-deep-blue-400">难度：</span><span className="text-deep-blue-100">{DIFFICULTY_LABELS[snap.difficulty]}</span></div>
+                          <div><span className="text-deep-blue-400">关键词：</span><span className="text-deep-blue-100">{snap.keywords.join('、') || '—'}</span></div>
+                        </div>
+                        <div>
+                          <span className="text-deep-blue-400">背景：</span>
+                          <div className="mt-0.5 p-1.5 rounded-sm bg-deep-blue-800/60 text-deep-blue-200 max-h-40 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                            {snap.background || '—'}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 text-[10px] font-mono">
+                        <div className="text-pro-gold-300/80 text-[9px] border-b border-deep-blue-700 pb-0.5 mb-1">
+                          舆情素材 · 共{snap.opinionStream.length}条
+                          {negCount > 0 && <span className="text-alert-red-400 ml-1">（负面{negCount}条）</span>}
+                        </div>
+                        <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                          {snap.opinionStream.map(op => (
+                            <div key={op.id} className="flex items-center gap-1.5 px-1 py-0.5 rounded-sm bg-deep-blue-800/40">
+                              <span className="text-deep-blue-400 shrink-0">T+{op.timestamp}s</span>
+                              <span className="text-deep-blue-300 shrink-0">·</span>
+                              <span className="text-deep-blue-200 shrink-0">{op.sourceName}</span>
+                              <span className="text-deep-blue-300 shrink-0">·</span>
+                              {sentimentBadge(op.sentiment)}
+                              <span className="text-deep-blue-400 shrink-0">·</span>
+                              <span className="text-deep-blue-300 truncate">{op.content.slice(0, 40)}{op.content.length > 40 ? '…' : ''}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 text-[10px] font-mono">
+                        <div className="text-pro-gold-300/80 text-[9px] border-b border-deep-blue-700 pb-0.5 mb-1">参考回应</div>
+                        <div><span className="text-deep-blue-400">官方回应：</span><span className="text-deep-blue-200">{snap.idealResponse.official.slice(0, 100)}{snap.idealResponse.official.length > 100 ? '…' : ''}</span></div>
+                        <div><span className="text-deep-blue-400">Q&A：</span><span className="text-deep-blue-200">{snap.idealResponse.qa.length}条</span></div>
+                        <div><span className="text-deep-blue-400">内部通报：</span><span className="text-deep-blue-200">{snap.idealResponse.internal.slice(0, 100)}{snap.idealResponse.internal.length > 100 ? '…' : ''}</span></div>
+                      </div>
+
+                      {showDiff && (() => {
+                        const cur = caseData;
+                        const old = snap;
+                        return (
+                          <div className="space-y-1 p-2 rounded-sm border border-pro-gold-500/20 bg-deep-blue-900/80">
+                            <div className="text-[9px] font-mono text-pro-gold-300 mb-1">差异对比（v{ver.version} → 当前 v{cur.currentVersion ?? '草稿'}）</div>
+                            {diffRow('标题', old.title, cur.title)}
+                            {diffRow('分类', CATEGORY_LABELS[old.category], CATEGORY_LABELS[cur.category])}
+                            {diffRow('难度', DIFFICULTY_LABELS[old.difficulty], DIFFICULTY_LABELS[cur.difficulty])}
+                            {diffRow('背景字数', `${old.background.length}字`, `${cur.background.length}字`)}
+                            {diffRow('舆情条数', `${old.opinionStream.length}条`, `${cur.opinionStream.length}条`)}
+                            {diffRow('负面条数', `${old.opinionStream.filter(o => o.sentiment === 'negative').length}条`, `${cur.opinionStream.filter(o => o.sentiment === 'negative').length}条`)}
+                            {diffRow('官方回应', `${old.idealResponse.official.length}字`, `${cur.idealResponse.official.length}字`)}
+                            {diffRow('Q&A条数', `${old.idealResponse.qa.length}条`, `${cur.idealResponse.qa.length}条`)}
+                            {diffRow('内部通报', `${old.idealResponse.internal.length}字`, `${cur.idealResponse.internal.length}字`)}
+                          </div>
+                        );
+                      })()}
                     </div>
-                    <div className="text-[10px] font-mono text-deep-blue-400 grid grid-cols-2 gap-1">
-                      <div>标题：{caseData.versions[viewingVersion].snapshot.title}</div>
-                      <div>素材：{caseData.versions[viewingVersion].snapshot.opinionStream.length}条</div>
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             )}
           </div>

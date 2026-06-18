@@ -27,11 +27,14 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  Calendar,
+  ClipboardList,
+  Send,
 } from 'lucide-react';
 import { useTrainingStore } from '../store/trainingStore';
 import { WindowFrame } from './WindowFrame';
 import { CaseEditorModal } from './CaseEditorModal';
-import type { CrisisCategory, CrisisCase, Trainee, Team } from '../types';
+import type { CrisisCategory, CrisisCase, Trainee, Team, TrainingTask } from '../types';
 import { CATEGORY_LABELS, DIFFICULTY_LABELS, OUTBREAK_SPEEDS, MEDIA_ATTENTIONS, PRESSURE_LEVELS } from '../types';
 
 const CATEGORY_ICONS: Record<CrisisCategory, React.ReactNode> = {
@@ -167,6 +170,89 @@ const TeamEditor: React.FC<{ initial?: Team | null; onSave: (t: Omit<Team, 'id' 
   );
 };
 
+const TaskPublishEditor: React.FC<{ team: Team; allCases: CrisisCase[]; onSave: (t: Omit<TrainingTask, 'id' | 'createdAt' | 'completions'>) => void; onClose: () => void }> = ({ team, allCases, onSave, onClose }) => {
+  const [caseId, setCaseId] = useState('');
+  const [outbreakSpeed, setOutbreakSpeed] = useState<1 | 2 | 3 | 4>(2);
+  const [mediaAttention, setMediaAttention] = useState<1 | 2 | 3 | 4>(2);
+  const [deadline, setDeadline] = useState('');
+  const [err, setErr] = useState('');
+
+  const submit = () => {
+    if (!caseId) { setErr('请选择训练案例'); return; }
+    if (!deadline) { setErr('请设置截止日期'); return; }
+    const selectedCase = allCases.find(c => c.id === caseId);
+    if (!selectedCase) { setErr('所选案例不存在'); return; }
+    const deadlineTs = new Date(deadline + 'T23:59:59').getTime();
+    if (deadlineTs <= Date.now()) { setErr('截止日期不能早于当前时间'); return; }
+    onSave({
+      teamId: team.id,
+      teamName: team.name,
+      caseId: selectedCase.id,
+      caseTitle: selectedCase.title,
+      outbreakSpeed,
+      mediaAttention,
+      duration: selectedCase.estimatedDuration,
+      deadline: deadlineTs,
+    });
+  };
+
+  return (
+    <div className="space-y-3">
+      {err && <div className="text-[11px] font-mono text-alert-red-400 bg-alert-red-500/10 border border-alert-red-500/30 p-2 rounded-sm">{err}</div>}
+      <label className="block space-y-1">
+        <div className="text-[11px] font-mono text-pro-gold-300">训练案例 <span className="text-alert-red-400">*</span></div>
+        <select value={caseId} onChange={e => setCaseId(e.target.value)}
+          className="w-full px-2.5 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 rounded-sm text-sm text-deep-blue-50 font-mono focus:outline-none focus:border-pro-gold-400">
+          <option value="">— 请选择案例 —</option>
+          {allCases.map(c => (
+            <option key={c.id} value={c.id}>{c.title}（{CATEGORY_LABELS[c.category]}）</option>
+          ))}
+        </select>
+      </label>
+      <label className="block space-y-1">
+        <div className="text-[11px] font-mono text-pro-gold-300">爆发速度</div>
+        <div className="flex gap-1">
+          {([1, 2, 3, 4] as const).map(v => (
+            <button key={v} type="button" onClick={() => setOutbreakSpeed(v)}
+              className={`flex-1 py-1.5 text-[11px] font-mono rounded-sm border transition-all ${
+                outbreakSpeed === v
+                  ? 'bg-alert-red-500/20 border-alert-red-400 text-alert-red-400'
+                  : 'bg-deep-blue-900/60 border-deep-blue-500 text-deep-blue-300 hover:border-deep-blue-400'
+              }`}
+            >{v}档</button>
+          ))}
+        </div>
+      </label>
+      <label className="block space-y-1">
+        <div className="text-[11px] font-mono text-pro-gold-300">媒体关注度</div>
+        <div className="flex gap-1">
+          {([1, 2, 3, 4] as const).map(v => (
+            <button key={v} type="button" onClick={() => setMediaAttention(v)}
+              className={`flex-1 py-1.5 text-[11px] font-mono rounded-sm border transition-all ${
+                mediaAttention === v
+                  ? 'bg-terminal-cyan/20 border-terminal-cyan/60 text-terminal-cyan'
+                  : 'bg-deep-blue-900/60 border-deep-blue-500 text-deep-blue-300 hover:border-deep-blue-400'
+              }`}
+            >{v}档</button>
+          ))}
+        </div>
+      </label>
+      <label className="block space-y-1">
+        <div className="text-[11px] font-mono text-pro-gold-300">截止日期 <span className="text-alert-red-400">*</span></div>
+        <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)}
+          className="w-full px-2.5 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 rounded-sm text-sm text-deep-blue-50 font-mono focus:outline-none focus:border-pro-gold-400" />
+      </label>
+      <div className="pt-2 flex justify-end gap-2">
+        <button onClick={onClose} className="px-3 py-1.5 rounded-sm border bg-deep-blue-700 hover:bg-deep-blue-600 border-deep-blue-500 text-deep-blue-200 text-xs font-mono">取消</button>
+        <button onClick={submit} className="px-3 py-1.5 rounded-sm border bg-pro-gold-600 hover:bg-pro-gold-500 border-pro-gold-400 text-white text-xs font-mono shadow-glow-gold flex items-center gap-1">
+          <Send size={11} />
+          发布任务
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export const CaseLibrary: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<CrisisCategory | 'all'>('all');
   const [editorOpen, setEditorOpen] = useState(false);
@@ -176,6 +262,7 @@ export const CaseLibrary: React.FC = () => {
   const [teamModal, setTeamModal] = useState<null | { mode: 'add' | 'edit'; team?: Team | null }>(null);
   const [addMemberModal, setAddMemberModal] = useState(false);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [taskPublishModal, setTaskPublishModal] = useState(false);
 
   const {
     selectedCase,
@@ -206,10 +293,15 @@ export const CaseLibrary: React.FC = () => {
     addMemberToTeam,
     removeMemberFromTeam,
     getTeamStats,
+    tasks,
+    addTask,
+    deleteTask,
+    getTasksForTeam,
   } = useTrainingStore();
 
   const currentTeam = useMemo(() => teams.find(t => t.id === currentTeamId) || null, [teams, currentTeamId]);
   const teamStats = useMemo(() => currentTeamId ? getTeamStats(currentTeamId) : null, [currentTeamId, getTeamStats]);
+  const teamTasks = useMemo(() => currentTeamId ? getTasksForTeam(currentTeamId) : [], [currentTeamId, getTasksForTeam, tasks]);
 
   const filteredCases = activeCategory === 'all'
     ? allCases
@@ -374,6 +466,23 @@ export const CaseLibrary: React.FC = () => {
               </button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {taskPublishModal && currentTeam && (
+        <Modal
+          title={`发布训练任务 → 「${currentTeam.name}」`}
+          onClose={() => setTaskPublishModal(false)}
+        >
+          <TaskPublishEditor
+            team={currentTeam}
+            allCases={allCases}
+            onClose={() => setTaskPublishModal(false)}
+            onSave={(t) => {
+              addTask(t);
+              setTaskPublishModal(false);
+            }}
+          />
         </Modal>
       )}
 
@@ -642,6 +751,98 @@ export const CaseLibrary: React.FC = () => {
                                 >
                                   <UserMinus size={10} />
                                 </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="pt-2 border-t border-deep-blue-600/50">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="text-[10px] font-mono text-deep-blue-400 flex items-center gap-1">
+                          <ClipboardList size={10} />
+                          训练任务
+                        </div>
+                        <button
+                          onClick={() => setTaskPublishModal(true)}
+                          className="px-1.5 py-0.5 text-[9px] font-mono text-pro-gold-300 hover:bg-pro-gold-500/10 rounded-sm flex items-center gap-0.5 border border-pro-gold-500/30"
+                        >
+                          <Send size={9} />
+                          发布任务
+                        </button>
+                      </div>
+
+                      {teamTasks.length === 0 ? (
+                        <div className="p-2 rounded-sm bg-deep-blue-800/30 border border-deep-blue-600/50 text-[10px] font-mono text-deep-blue-500 text-center">
+                          暂无训练任务，点击「发布任务」分发训练
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+                          {teamTasks.map(task => {
+                            const isExpired = task.deadline < Date.now();
+                            const totalMembers = currentTeam.memberIds.length;
+                            const completedCount = task.completions.length;
+                            const progressPct = totalMembers > 0 ? Math.round((completedCount / totalMembers) * 100) : 0;
+                            return (
+                              <div
+                                key={task.id}
+                                className={`p-2 rounded-sm border ${isExpired ? 'border-deep-blue-700/50 bg-deep-blue-900/20 opacity-60' : 'border-deep-blue-600/50 bg-deep-blue-900/30'}`}
+                              >
+                                <div className="flex items-start justify-between gap-1.5 mb-1">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-[11px] font-mono text-deep-blue-100 font-medium truncate">{task.caseTitle}</div>
+                                    <div className="flex items-center gap-2 mt-0.5 text-[9px] font-mono flex-wrap">
+                                      <span className="text-alert-red-400">爆发{task.outbreakSpeed}档</span>
+                                      <span className="text-terminal-cyan">媒体{task.mediaAttention}档</span>
+                                      <span className={`flex items-center gap-0.5 ${isExpired ? 'text-alert-red-400' : 'text-deep-blue-400'}`}>
+                                        <Calendar size={8} />
+                                        {isExpired ? '已过期' : new Date(task.deadline).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      if (confirm('确定删除此训练任务？')) {
+                                        deleteTask(task.id);
+                                      }
+                                    }}
+                                    className="p-0.5 text-deep-blue-500 hover:text-alert-red-400 hover:bg-alert-red-500/10 rounded-sm transition-colors flex-shrink-0"
+                                    title="删除任务"
+                                  >
+                                    <Trash2 size={10} />
+                                  </button>
+                                </div>
+
+                                <div className="mb-1">
+                                  <div className="flex items-center justify-between text-[9px] font-mono mb-0.5">
+                                    <span className="text-deep-blue-400">完成进度 {completedCount}/{totalMembers}</span>
+                                    <span className="text-pro-gold-300">{progressPct}%</span>
+                                  </div>
+                                  <div className="w-full h-1 bg-deep-blue-700 rounded-full overflow-hidden">
+                                    <div
+                                      className="h-full bg-calm-teal-500 rounded-full transition-all"
+                                      style={{ width: `${progressPct}%` }}
+                                    />
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                                  {currentTeam.memberIds.map(mid => {
+                                    const member = trainees.find(t => t.id === mid);
+                                    if (!member) return null;
+                                    const completion = task.completions.find(c => c.traineeId === mid);
+                                    return (
+                                      <span key={mid} className="text-[9px] font-mono">
+                                        {completion ? (
+                                          <span className="text-terminal-green">✓{member.name}({completion.score})</span>
+                                        ) : (
+                                          <span className="text-deep-blue-500">○{member.name}</span>
+                                        )}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             );
                           })}

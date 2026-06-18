@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   History,
   ChevronDown,
@@ -25,6 +25,13 @@ import {
   Layers,
   Flag,
   CheckCircle,
+  ClipboardList,
+  Calendar,
+  Trophy,
+  Medal,
+  Zap,
+  X,
+  Plus,
 } from 'lucide-react';
 import {
   Radar,
@@ -43,7 +50,7 @@ import {
 } from 'recharts';
 import { useTrainingStore } from '../store/trainingStore';
 import { WindowFrame } from './WindowFrame';
-import type { TrainingRecord, ImprovementPlan, Team } from '../types';
+import type { TrainingRecord, ImprovementPlan, Team, TrainingTask } from '../types';
 import { SOURCE_LABELS } from '../types';
 
 const DifficultyBadge: React.FC<{ level: string }> = ({ level }) => {
@@ -595,13 +602,191 @@ interface TeamStatsMembers {
   recordCount: number;
 }
 
-function TeamStatsPanel({ teamMembers }: { teamMembers: TeamStatsMembers[] }) {
+function TeamStatsPanel({ teamMembers, records, onMemberClick }: {
+  teamMembers: TeamStatsMembers[];
+  records: TrainingRecord[];
+  onMemberClick: (traineeId: string) => void;
+}) {
+  const DIMENSION_NAMES: Record<string, string> = {
+    '回应速度': '回应速度',
+    '事实完整': '事实完整',
+    '事实完整度': '事实完整度',
+    '态度温度': '态度温度',
+    '风险词使用': '风险词使用',
+    '风险规范': '风险规范',
+  };
+
+  const rankingData = useMemo(() => {
+    return teamMembers.map(m => {
+      const memberRecords = records
+        .filter(r => r.traineeId === m.trainee.id)
+        .sort((a, b) => a.createdAt - b.createdAt);
+      const recent7 = memberRecords.slice(-7);
+      const avgRecent7 = recent7.length > 0
+        ? Math.round(recent7.reduce((s, r) => s + r.totalScore, 0) / recent7.length)
+        : 0;
+      const bestScore = memberRecords.length > 0
+        ? Math.max(...memberRecords.map(r => r.totalScore))
+        : 0;
+
+      let improvement = 0;
+      if (memberRecords.length >= 2) {
+        const mid = Math.floor(memberRecords.length / 2);
+        const earlier = memberRecords.slice(0, mid);
+        const recent = memberRecords.slice(mid);
+        const earlierAvg = earlier.reduce((s, r) => s + r.totalScore, 0) / earlier.length;
+        const recentAvg = recent.reduce((s, r) => s + r.totalScore, 0) / recent.length;
+        improvement = recentAvg - earlierAvg;
+      }
+
+      let latestLowestDim: string | null = null;
+      if (m.latestRecord?.reviewResult) {
+        const dims = [
+          { name: '回应速度', s: m.latestRecord.reviewResult.speed.score },
+          { name: '事实完整度', s: m.latestRecord.reviewResult.factuality.score },
+          { name: '态度温度', s: m.latestRecord.reviewResult.attitude.score },
+          { name: '风险规范', s: m.latestRecord.reviewResult.riskWords.score },
+        ];
+        dims.sort((a, b) => a.s - b.s);
+        latestLowestDim = dims[0].name;
+      }
+
+      return {
+        ...m,
+        avgRecent7,
+        bestScore,
+        improvement,
+        recordCount: memberRecords.length,
+        latestLowestDim,
+      };
+    }).sort((a, b) => {
+      if (b.avgRecent7 !== a.avgRecent7) return b.avgRecent7 - a.avgRecent7;
+      return b.recordCount - a.recordCount;
+    });
+  }, [teamMembers, records]);
+
+  const mostImproved = useMemo(() => {
+    const eligible = rankingData.filter(m => m.recordCount >= 2 && m.improvement > 0);
+    if (eligible.length === 0) return null;
+    return eligible.reduce((best, cur) => cur.improvement > best.improvement ? cur : best, eligible[0]);
+  }, [rankingData]);
+
+  const commonWeaknesses = useMemo(() => {
+    const dimCount: Record<string, number> = {};
+    const focusDimCount: Record<string, number> = {};
+    rankingData.forEach(m => {
+      if (m.latestLowestDim) {
+        dimCount[m.latestLowestDim] = (dimCount[m.latestLowestDim] || 0) + 1;
+      }
+      if (m.latestRecord?.improvementPlan?.focusPoints) {
+        m.latestRecord.improvementPlan.focusPoints.forEach(fp => {
+          focusDimCount[fp.dimension] = (focusDimCount[fp.dimension] || 0) + 1;
+        });
+      }
+    });
+    const weaknessList = Object.entries(dimCount)
+      .sort((a, b) => b[1] - a[1])
+      .map(([dim, count]) => ({ dim, count }));
+    const focusList = Object.entries(focusDimCount)
+      .sort((a, b) => b[1] - a[1])
+      .map(([dim, count]) => ({ dim, count }));
+    return { weaknessList, focusList };
+  }, [rankingData]);
+
+  const medalForRank = (rank: number) => {
+    if (rank === 1) return <Trophy size={12} className="text-yellow-400" />;
+    if (rank === 2) return <Medal size={12} className="text-gray-300" />;
+    if (rank === 3) return <Medal size={12} className="text-amber-600" />;
+    return <span className="text-[10px] font-mono text-deep-blue-500 w-3 text-center">{rank}</span>;
+  };
+
   return (
     <div className="rounded-sm border border-calm-teal-500/30 bg-calm-teal-500/5 overflow-hidden">
       <div className="flex items-center gap-1.5 px-3 py-2 border-b border-calm-teal-500/20 bg-calm-teal-500/10">
-        <Users size={12} className="text-calm-teal-400" />
-        <span className="text-[12px] font-serif-cn text-calm-teal-300 font-bold">小组训练概况</span>
+        <Trophy size={12} className="text-calm-teal-400" />
+        <span className="text-[12px] font-serif-cn text-calm-teal-300 font-bold">小组排行与成长概览</span>
       </div>
+
+      <div className="px-3 py-2 border-b border-deep-blue-600/50">
+        <div className="text-[10px] font-mono text-pro-gold-300 flex items-center gap-1 mb-1.5">
+          <Trophy size={10} />
+          小组排行榜（近7次均分）
+        </div>
+        <div className="space-y-1">
+          {rankingData.map((m, idx) => {
+            const rank = idx + 1;
+            const isMostImproved = mostImproved && m.trainee.id === mostImproved.trainee.id;
+            return (
+              <div key={m.trainee.id}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-sm bg-deep-blue-900/40 border border-deep-blue-600/50 hover:bg-deep-blue-800/40 transition-colors">
+                <div className="flex-shrink-0 w-4 flex justify-center">{medalForRank(rank)}</div>
+                <button
+                  onClick={() => onMemberClick(m.trainee.id)}
+                  className="text-[11px] font-mono text-deep-blue-100 hover:text-pro-gold-300 transition-colors underline decoration-dotted underline-offset-2 cursor-pointer"
+                >
+                  {m.trainee.name}
+                </button>
+                {isMostImproved && (
+                  <span className="px-1 py-px text-[8px] font-mono rounded-sm border border-calm-teal-500/50 bg-calm-teal-500/15 text-calm-teal-300 flex items-center gap-0.5">
+                    <TrendingUp size={8} />
+                    进步最快
+                  </span>
+                )}
+                <div className="ml-auto flex items-center gap-3 flex-shrink-0">
+                  <div className="text-center w-10">
+                    <div className="text-[7px] font-mono text-deep-blue-500">均分</div>
+                    <div className={`text-[10px] font-mono font-bold ${m.avgRecent7 > 0 ? scoreClass(m.avgRecent7) : 'text-deep-blue-500'}`}>
+                      {m.avgRecent7 || '-'}
+                    </div>
+                  </div>
+                  <div className="text-center w-10">
+                    <div className="text-[7px] font-mono text-deep-blue-500">最高</div>
+                    <div className={`text-[10px] font-mono font-bold ${m.bestScore > 0 ? scoreClass(m.bestScore) : 'text-deep-blue-500'}`}>
+                      {m.bestScore || '-'}
+                    </div>
+                  </div>
+                  <div className="text-center w-8">
+                    <div className="text-[7px] font-mono text-deep-blue-500">次数</div>
+                    <div className="text-[10px] font-mono text-deep-blue-200 font-bold">{m.recordCount}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {commonWeaknesses.weaknessList.length > 0 && (
+        <div className="px-3 py-2 border-b border-deep-blue-600/50">
+          <div className="text-[10px] font-mono text-terminal-amber flex items-center gap-1 mb-1.5">
+            <AlertTriangle size={10} />
+            小组共性短板
+          </div>
+          <div className="space-y-1">
+            {commonWeaknesses.weaknessList.map(w => (
+              <div key={w.dim} className="flex items-center gap-1.5 text-[10px] font-mono">
+                <span className="text-alert-red-400 font-bold">{w.count}</span>
+                <span className="text-deep-blue-300">名成员在</span>
+                <span className="text-terminal-amber font-medium">「{w.dim}」</span>
+                <span className="text-deep-blue-300">维度存在短板</span>
+              </div>
+            ))}
+          </div>
+          {commonWeaknesses.focusList.length > 0 && (
+            <div className="mt-1.5 pt-1.5 border-t border-deep-blue-600/30">
+              <div className="text-[9px] font-mono text-deep-blue-400 mb-1">改进计划维度聚合：</div>
+              <div className="flex flex-wrap gap-1">
+                {commonWeaknesses.focusList.map(f => (
+                  <span key={f.dim} className="px-1.5 py-px text-[9px] font-mono rounded-sm border border-pro-gold-500/30 bg-pro-gold-500/10 text-pro-gold-300">
+                    {f.dim} ×{f.count}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="divide-y divide-deep-blue-600/50">
         {teamMembers.map((m, idx) => (
           <div key={m.trainee.id} className="px-3 py-2 hover:bg-deep-blue-800/30 transition-colors">
@@ -613,7 +798,12 @@ function TeamStatsPanel({ teamMembers }: { teamMembers: TeamStatsMembers[] }) {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-mono text-deep-blue-100 font-medium">{m.trainee.name}</span>
+                    <button
+                      onClick={() => onMemberClick(m.trainee.id)}
+                      className="text-[11px] font-mono text-deep-blue-100 font-medium hover:text-pro-gold-300 transition-colors underline decoration-dotted underline-offset-2 cursor-pointer"
+                    >
+                      {m.trainee.name}
+                    </button>
                     {!m.latestRecord && (
                       <span className="px-1 py-px text-[9px] font-mono rounded-sm bg-deep-blue-600/50 text-deep-blue-400 border border-deep-blue-500/50">
                         未开始训练
@@ -661,6 +851,261 @@ function TeamStatsPanel({ teamMembers }: { teamMembers: TeamStatsMembers[] }) {
   );
 }
 
+interface NewTaskForm {
+  caseId: string;
+  outbreakSpeed: 1 | 2 | 3 | 4;
+  mediaAttention: 1 | 2 | 3 | 4;
+  deadline: string;
+}
+
+function NewTaskModal({
+  open,
+  onClose,
+  allCases,
+  teamId,
+  teamName,
+  teamMemberIds,
+  trainees,
+  onAdd,
+}: {
+  open: boolean;
+  onClose: () => void;
+  allCases: { id: string; title: string }[];
+  teamId: string;
+  teamName: string;
+  teamMemberIds: string[];
+  trainees: { id: string; name: string }[];
+  onAdd: (t: Omit<TrainingTask, 'id' | 'createdAt' | 'completions'>) => void;
+}) {
+  const [form, setForm] = useState<NewTaskForm>({
+    caseId: '',
+    outbreakSpeed: 2,
+    mediaAttention: 2,
+    deadline: '',
+  });
+
+  if (!open) return null;
+
+  const selectedCase = allCases.find(c => c.id === form.caseId);
+
+  const handleSubmit = () => {
+    if (!form.caseId || !form.deadline) return;
+    onAdd({
+      teamId,
+      teamName,
+      caseId: form.caseId,
+      caseTitle: selectedCase?.title || '',
+      outbreakSpeed: form.outbreakSpeed,
+      mediaAttention: form.mediaAttention,
+      duration: 15,
+      deadline: new Date(form.deadline).getTime(),
+    });
+    setForm({ caseId: '', outbreakSpeed: 2, mediaAttention: 2, deadline: '' });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
+      <div className="w-96 bg-deep-blue-900 border border-deep-blue-500 rounded-sm shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-3 py-2 border-b border-deep-blue-600">
+          <div className="flex items-center gap-1.5">
+            <ClipboardList size={12} className="text-pro-gold-400" />
+            <span className="text-[11px] font-mono text-pro-gold-300 font-bold">发布训练任务</span>
+          </div>
+          <button onClick={onClose} className="p-1 text-deep-blue-400 hover:text-deep-blue-100 transition-colors">
+            <X size={12} />
+          </button>
+        </div>
+        <div className="p-3 space-y-3">
+          <div>
+            <div className="text-[10px] font-mono text-deep-blue-400 mb-1">选择案例 *</div>
+            <select
+              value={form.caseId}
+              onChange={e => setForm(f => ({ ...f, caseId: e.target.value }))}
+              className="w-full bg-deep-blue-800 border border-deep-blue-500 text-deep-blue-100 text-[10px] font-mono rounded-sm px-2 py-1.5 focus:outline-none focus:border-pro-gold-400"
+            >
+              <option value="">-- 选择案例 --</option>
+              {allCases.map(c => (
+                <option key={c.id} value={c.id}>{c.title}</option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <div className="text-[10px] font-mono text-deep-blue-400 mb-1">爆发速度</div>
+              <select
+                value={form.outbreakSpeed}
+                onChange={e => setForm(f => ({ ...f, outbreakSpeed: Number(e.target.value) as 1 | 2 | 3 | 4 }))}
+                className="w-full bg-deep-blue-800 border border-deep-blue-500 text-deep-blue-100 text-[10px] font-mono rounded-sm px-2 py-1.5 focus:outline-none focus:border-pro-gold-400"
+              >
+                <option value={1}>1档 - 慢速发酵</option>
+                <option value={2}>2档 - 正常传播</option>
+                <option value={3}>3档 - 快速扩散</option>
+                <option value={4}>4档 - 极速爆发</option>
+              </select>
+            </div>
+            <div>
+              <div className="text-[10px] font-mono text-deep-blue-400 mb-1">媒体关注度</div>
+              <select
+                value={form.mediaAttention}
+                onChange={e => setForm(f => ({ ...f, mediaAttention: Number(e.target.value) as 1 | 2 | 3 | 4 }))}
+                className="w-full bg-deep-blue-800 border border-deep-blue-500 text-deep-blue-100 text-[10px] font-mono rounded-sm px-2 py-1.5 focus:outline-none focus:border-pro-gold-400"
+              >
+                <option value={1}>1档 - 较低关注</option>
+                <option value={2}>2档 - 中等关注</option>
+                <option value={3}>3档 - 高度关注</option>
+                <option value={4}>4档 - 全网聚焦</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <div className="text-[10px] font-mono text-deep-blue-400 mb-1">截止日期 *</div>
+            <input
+              type="date"
+              value={form.deadline}
+              onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))}
+              className="w-full bg-deep-blue-800 border border-deep-blue-500 text-deep-blue-100 text-[10px] font-mono rounded-sm px-2 py-1.5 focus:outline-none focus:border-pro-gold-400"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              onClick={onClose}
+              className="px-3 py-1 text-[10px] font-mono rounded-sm border border-deep-blue-500 text-deep-blue-300 hover:bg-deep-blue-700/50 transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={!form.caseId || !form.deadline}
+              className="px-3 py-1 text-[10px] font-mono rounded-sm border border-pro-gold-500/50 bg-pro-gold-500/20 text-pro-gold-300 hover:bg-pro-gold-500/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              确认发布
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrainingTaskPanel({
+  teamId,
+  teamName,
+  teamMemberIds,
+  trainees,
+  allCases,
+}: {
+  teamId: string;
+  teamName: string;
+  teamMemberIds: string[];
+  trainees: { id: string; name: string }[];
+  allCases: { id: string; title: string }[];
+}) {
+  const { getTasksForTeam, addTask, deleteTask } = useTrainingStore();
+  const [showNewTask, setShowNewTask] = useState(false);
+  const tasks = getTasksForTeam(teamId);
+  const now = Date.now();
+
+  return (
+    <div className="rounded-sm border border-pro-gold-500/30 bg-pro-gold-500/5 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-pro-gold-500/20 bg-pro-gold-500/10">
+        <div className="flex items-center gap-1.5">
+          <ClipboardList size={12} className="text-pro-gold-400" />
+          <span className="text-[12px] font-serif-cn text-pro-gold-300 font-bold">训练任务</span>
+          <span className="text-[9px] font-mono text-deep-blue-400 ml-1">({tasks.length})</span>
+        </div>
+        <button
+          onClick={() => setShowNewTask(true)}
+          className="px-2 py-0.5 text-[10px] font-mono rounded-sm border border-pro-gold-500/50 bg-pro-gold-500/15 text-pro-gold-300 hover:bg-pro-gold-500/25 transition-colors flex items-center gap-1"
+        >
+          <Plus size={10} />
+          发布训练任务
+        </button>
+      </div>
+
+      {tasks.length === 0 ? (
+        <div className="px-3 py-4 text-center text-[10px] font-mono text-deep-blue-500">
+          暂无训练任务，点击上方按钮发布
+        </div>
+      ) : (
+        <div className="divide-y divide-deep-blue-600/50">
+          {tasks.map(task => {
+            const isExpired = task.deadline < now;
+            const completedIds = new Set(task.completions.map(c => c.traineeId));
+            return (
+              <div key={task.id} className={`px-3 py-2 ${isExpired ? 'opacity-50' : ''}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                      <span className="text-[11px] font-mono text-deep-blue-100 font-medium truncate">{task.caseTitle}</span>
+                      <span className="px-1 py-px text-[9px] font-mono rounded-sm border border-terminal-amber/40 bg-terminal-amber/10 text-terminal-amber flex items-center gap-0.5">
+                        <Zap size={8} />
+                        爆发{task.outbreakSpeed}
+                      </span>
+                      <span className="px-1 py-px text-[9px] font-mono rounded-sm border border-deep-blue-400/40 bg-deep-blue-500/10 text-deep-blue-300 flex items-center gap-0.5">
+                        <Gauge size={8} />
+                        关注{task.mediaAttention}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] font-mono text-deep-blue-500">
+                      <Calendar size={9} />
+                      <span className={isExpired ? 'text-alert-red-400' : ''}>
+                        截止：{formatDate(task.deadline)}{isExpired ? ' (已过期)' : ''}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-1 text-[10px] font-mono">
+                      <span className="text-deep-blue-400">完成进度：</span>
+                      <span className={`font-bold ${task.completions.length === teamMemberIds.length ? 'text-calm-teal-400' : 'text-deep-blue-200'}`}>
+                        {task.completions.length}/{teamMemberIds.length}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {teamMemberIds.map(mid => {
+                        const t = trainees.find(tr => tr.id === mid);
+                        const completion = task.completions.find(c => c.traineeId === mid);
+                        if (completion) {
+                          return (
+                            <span key={mid} className="px-1 py-px text-[9px] font-mono rounded-sm border border-calm-teal-500/40 bg-calm-teal-500/10 text-calm-teal-300 flex items-center gap-0.5">
+                              ✓{t?.name || mid}({completion.score})
+                            </span>
+                          );
+                        }
+                        return (
+                          <span key={mid} className="px-1 py-px text-[9px] font-mono rounded-sm border border-deep-blue-500/40 bg-deep-blue-600/20 text-deep-blue-400 flex items-center gap-0.5">
+                            ○{t?.name || mid}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { if (confirm('确定删除该任务？')) deleteTask(task.id); }}
+                    className="p-1 rounded-sm text-deep-blue-400 hover:text-alert-red-400 hover:bg-alert-red-500/10 transition-colors flex-shrink-0"
+                    title="删除任务"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <NewTaskModal
+        open={showNewTask}
+        onClose={() => setShowNewTask(false)}
+        allCases={allCases}
+        teamId={teamId}
+        teamName={teamName}
+        teamMemberIds={teamMemberIds}
+        trainees={trainees}
+        onAdd={(t) => addTask(t)}
+      />
+    </div>
+  );
+}
+
 export const TrainingRecords: React.FC = () => {
   const {
     records,
@@ -672,12 +1117,14 @@ export const TrainingRecords: React.FC = () => {
     setCurrentTrainee,
     teams,
     getTeamStats,
+    allCases,
   } = useTrainingStore();
   const [filterCategory, setFilterCategory] = useState<string>('all');
   const [filterTraineeId, setFilterTraineeId] = useState<string>(currentTraineeId || 'all');
   const [filterTeamId, setFilterTeamId] = useState<string>('all');
   const [teamViewMode, setTeamViewMode] = useState<'summary' | 'member'>('summary');
   const [sortBy, setSortBy] = useState<'date' | 'score'>('date');
+  const recordListRef = useRef<HTMLDivElement>(null);
 
   const categories = useMemo(() => {
     const set = new Set(records.map(r => r.caseCategory));
@@ -784,6 +1231,14 @@ export const TrainingRecords: React.FC = () => {
     setFilterTeamId(teamId);
     setFilterTraineeId('all');
     setTeamViewMode('summary');
+  };
+
+  const handleMemberClick = (traineeId: string) => {
+    setFilterTraineeId(traineeId);
+    setTeamViewMode('member');
+    setTimeout(() => {
+      recordListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
   };
 
   return (
@@ -934,6 +1389,18 @@ export const TrainingRecords: React.FC = () => {
                     ...m,
                     recordCount: records.filter(r => r.traineeId === m.trainee.id).length,
                   }))}
+                  records={records}
+                  onMemberClick={handleMemberClick}
+                />
+              )}
+
+              {showTeamPanel && selectedTeam && (
+                <TrainingTaskPanel
+                  teamId={selectedTeam.id}
+                  teamName={selectedTeam.name}
+                  teamMemberIds={teamMemberIds}
+                  trainees={teamMemberTrainees}
+                  allCases={allCases}
                 />
               )}
 
@@ -976,7 +1443,7 @@ export const TrainingRecords: React.FC = () => {
           ) : null}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div ref={recordListRef} className="flex-1 overflow-y-auto p-3 space-y-2">
           {records.length === 0 ? (
             <div className="flex items-center justify-center h-full p-8">
               <div className="text-center space-y-3">

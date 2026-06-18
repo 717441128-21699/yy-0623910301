@@ -387,6 +387,15 @@ function generateTextReport(data: ReportData): string {
     lines.push(`    ${i + 1}. ${d.name}：${d.score}/100（${getScoreLabel(d.score)}）`);
   });
   lines.push('');
+  lines.push('  四维雷达图：');
+  lines.push('          回应速度');
+  lines.push(`           ${reviewResult.speed.score}`);
+  lines.push('            |');
+  lines.push('  风险词 --+-- 事实完整度');
+  lines.push(`   ${reviewResult.riskWords.score}      |      ${reviewResult.factuality.score}`);
+  lines.push('          态度温度');
+  lines.push(`           ${reviewResult.attitude.score}`);
+  lines.push('');
 
   lines.push('【三、学员提交内容】');
   lines.push(subSep);
@@ -489,6 +498,56 @@ function generateTextReport(data: ReportData): string {
   lines.push(sep);
 
   return lines.join('\n');
+}
+
+function generateRadarSVG(speed: number, factuality: number, attitude: number, riskWords: number): string {
+  const cx = 100, cy = 100, maxR = 80;
+  const levels = [0.33, 0.66, 1.0];
+
+  const bg = `<rect x="-90" y="-40" width="380" height="280" rx="8" fill="#131d35"/>`;
+
+  const gridLines = levels.map(lv => {
+    const r = maxR * lv;
+    return `<polygon points="${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}" fill="none" stroke="#2a3a5c" stroke-width="0.8"/>`;
+  }).join('');
+
+  const axisLines = [
+    `<line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - maxR}" stroke="#2a3a5c" stroke-width="0.8"/>`,
+    `<line x1="${cx}" y1="${cy}" x2="${cx + maxR}" y2="${cy}" stroke="#2a3a5c" stroke-width="0.8"/>`,
+    `<line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy + maxR}" stroke="#2a3a5c" stroke-width="0.8"/>`,
+    `<line x1="${cx}" y1="${cy}" x2="${cx - maxR}" y2="${cy}" stroke="#2a3a5c" stroke-width="0.8"/>`,
+  ].join('');
+
+  const sR = (speed / 100) * maxR;
+  const fR = (factuality / 100) * maxR;
+  const aR = (attitude / 100) * maxR;
+  const rR = (riskWords / 100) * maxR;
+
+  const dataPolygon = `<polygon points="${cx},${cy - sR} ${cx + fR},${cy} ${cx},${cy + aR} ${cx - rR},${cy}" fill="#2a9d8f" fill-opacity="0.19" stroke="#2a9d8f" stroke-width="1.5"/>`;
+
+  const dataCircles = [
+    `<circle cx="${cx}" cy="${cy - sR}" r="3" fill="#2a9d8f"/>`,
+    `<circle cx="${cx + fR}" cy="${cy}" r="3" fill="#2a9d8f"/>`,
+    `<circle cx="${cx}" cy="${cy + aR}" r="3" fill="#2a9d8f"/>`,
+    `<circle cx="${cx - rR}" cy="${cy}" r="3" fill="#2a9d8f"/>`,
+  ].join('');
+
+  const nf = 'font-family="PingFang SC,Microsoft YaHei,sans-serif"';
+  const nameAttr = `fill="#c8d6e5" font-size="10" ${nf}`;
+  const scoreAttr = `fill="#2a9d8f" font-size="11" font-weight="bold" ${nf}`;
+
+  const labels = [
+    `<text x="${cx}" y="${cy - maxR - 16}" text-anchor="middle" ${nameAttr}>回应速度</text>`,
+    `<text x="${cx}" y="${cy - maxR - 4}" text-anchor="middle" ${scoreAttr}>${speed}</text>`,
+    `<text x="${cx + maxR + 8}" y="${cy - 2}" text-anchor="start" ${nameAttr}>事实完整度</text>`,
+    `<text x="${cx + maxR + 8}" y="${cy + 12}" text-anchor="start" ${scoreAttr}>${factuality}</text>`,
+    `<text x="${cx}" y="${cy + maxR + 16}" text-anchor="middle" ${nameAttr}>态度温度</text>`,
+    `<text x="${cx}" y="${cy + maxR + 28}" text-anchor="middle" ${scoreAttr}>${attitude}</text>`,
+    `<text x="${cx - maxR - 8}" y="${cy - 2}" text-anchor="end" ${nameAttr}>风险词使用</text>`,
+    `<text x="${cx - maxR - 8}" y="${cy + 12}" text-anchor="end" ${scoreAttr}>${riskWords}</text>`,
+  ].join('');
+
+  return `<svg viewBox="-90 -40 380 280" xmlns="http://www.w3.org/2000/svg" style="max-width:380px;width:100%;margin:0 auto;display:block">${bg}${gridLines}${axisLines}${dataPolygon}${dataCircles}${labels}</svg>`;
 }
 
 function generateHTMLReport(data: ReportData): string {
@@ -870,6 +929,10 @@ function generateHTMLReport(data: ReportData): string {
               <div class="dim-bar"><div class="dim-bar-fill" style="width:${d.score}%;background:${scoreColor(d.score)}"></div></div>
             </div>
           `).join('')}
+        </div>
+        <div style="text-align:center;margin:20px 0">
+          <h3 style="font-size:14px;color:#4a6591;margin-bottom:10px">四维评分雷达图</h3>
+          ${generateRadarSVG(reviewResult.speed.score, reviewResult.factuality.score, reviewResult.attitude.score, reviewResult.riskWords.score)}
         </div>
       </div>
     </div>

@@ -45,6 +45,26 @@ export interface Team {
   updatedAt: number;
 }
 
+export interface TrainingTask {
+  id: string;
+  teamId: string;
+  teamName: string;
+  caseId: string;
+  caseTitle: string;
+  outbreakSpeed: 1 | 2 | 3 | 4;
+  mediaAttention: 1 | 2 | 3 | 4;
+  duration: number;
+  deadline: number;
+  createdAt: number;
+  completions: {
+    traineeId: string;
+    traineeName: string;
+    recordId: string;
+    score: number;
+    completedAt: number;
+  }[];
+}
+
 export interface CaseVersion {
   version: number;
   versionNote: string;

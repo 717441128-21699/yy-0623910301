@@ -12,6 +12,7 @@ import type {
   CaseOrigin,
   Team,
   CaseVersion,
+  TrainingTask,
 } from '../types';
 import { evaluateResponse } from '../utils/scoringEngine';
 import { mockCases } from '../data/cases';
@@ -21,6 +22,7 @@ const LS_RECORDS_KEY = 'prt_training_records_v1';
 const LS_TRAINEES_KEY = 'prt_trainees_v1';
 const LS_CURR_TRAINEE_KEY = 'prt_current_trainee_v1';
 const LS_TEAMS_KEY = 'prt_teams_v1';
+const LS_TASKS_KEY = 'prt_training_tasks_v1';
 
 const BUILTIN_CASES: CrisisCase[] = mockCases.map(c => ({ ...c, origin: 'builtin' as CaseOrigin }));
 
@@ -105,6 +107,21 @@ function saveTeams(teams: Team[]) {
   } catch {}
 }
 
+function loadTasks(): TrainingTask[] {
+  try {
+    const raw = localStorage.getItem(LS_TASKS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveTasks(tasks: TrainingTask[]) {
+  try {
+    localStorage.setItem(LS_TASKS_KEY, JSON.stringify(tasks));
+  } catch {}
+}
+
 interface TrainingStore extends TrainingState {
   customCases: CrisisCase[];
   allCases: CrisisCase[];
@@ -115,6 +132,7 @@ interface TrainingStore extends TrainingState {
   currentTrainee: Trainee | null;
   teams: Team[];
   currentTeamId: string | null;
+  tasks: TrainingTask[];
 
   selectCase: (caseData: CrisisCase) => void;
   updateConfig: (config: Partial<TrainingConfig>) => void;
@@ -159,6 +177,12 @@ interface TrainingStore extends TrainingState {
       latestWeakness: string | null;
     }[];
   };
+
+  addTask: (t: Omit<TrainingTask, 'id' | 'createdAt' | 'completions'>) => TrainingTask;
+  deleteTask: (id: string) => void;
+  updateTaskCompletion: (taskId: string, traineeId: string, traineeName: string, recordId: string, score: number) => void;
+  getTasksForTeam: (teamId: string) => TrainingTask[];
+  checkAndAutoCompleteTask: (record: TrainingRecord) => void;
 }
 
 const defaultConfig: TrainingConfig = {
@@ -179,6 +203,7 @@ const initialRecords = loadRecords();
 const initialTrainees = loadTrainees();
 const initialCurrentId = loadCurrentTraineeId();
 const initialTeams = loadTeams();
+const initialTasks = loadTasks();
 
 export const useTrainingStore = create<TrainingStore>((set, get) => ({
   phase: 'idle',
@@ -198,6 +223,7 @@ export const useTrainingStore = create<TrainingStore>((set, get) => ({
   currentTrainee: initialTrainees.find(t => t.id === initialCurrentId) || null,
   teams: initialTeams,
   currentTeamId: null,
+  tasks: initialTasks,
 
   selectCase: (caseData) => set({
     selectedCase: caseData,
@@ -264,6 +290,7 @@ export const useTrainingStore = create<TrainingStore>((set, get) => ({
       };
       saveRecord(record);
       set({ records: [record, ...state.records] });
+      get().checkAndAutoCompleteTask(record);
     }
 
     set({
@@ -574,5 +601,74 @@ export const useTrainingStore = create<TrainingStore>((set, get) => ({
       memberCount: memberStats.length,
       members: memberStats,
     };
+  },
+
+  addTask: (t) => {
+    const now = Date.now();
+    const newTask: TrainingTask = {
+      ...t,
+      id: `task-${now}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: now,
+      completions: [],
+    };
+    const next = [...get().tasks, newTask];
+    saveTasks(next);
+    set({ tasks: next });
+    return newTask;
+  },
+
+  deleteTask: (id) => {
+    const next = get().tasks.filter(t => t.id !== id);
+    saveTasks(next);
+    set({ tasks: next });
+  },
+
+  updateTaskCompletion: (taskId, traineeId, traineeName, recordId, score) => {
+    const next = get().tasks.map(t => {
+      if (t.id !== taskId) return t;
+      const existing = t.completions.find(c => c.traineeId === traineeId);
+      if (existing) return t;
+      return {
+        ...t,
+        completions: [...t.completions, {
+          traineeId,
+          traineeName,
+          recordId,
+          score,
+          completedAt: Date.now(),
+        }],
+      };
+    });
+    saveTasks(next);
+    set({ tasks: next });
+  },
+
+  getTasksForTeam: (teamId) => get().tasks.filter(t => t.teamId === teamId),
+
+  checkAndAutoCompleteTask: (record) => {
+    if (!record.traineeId) return;
+    const state = get();
+    const matchingTasks = state.tasks.filter(t =>
+      t.caseId === record.caseId &&
+      t.teamId && state.teams.find(tm => tm.id === t.teamId)?.memberIds.includes(record.traineeId!) &&
+      !t.completions.find(c => c.traineeId === record.traineeId)
+    );
+    if (matchingTasks.length === 0) return;
+    const next = state.tasks.map(t => {
+      const match = matchingTasks.find(mt => mt.id === t.id);
+      if (!match) return t;
+      return {
+        ...t,
+        completions: [...t.completions, {
+          traineeId: record.traineeId!,
+          traineeName: record.traineeName || '未知',
+          recordId: record.id,
+          score: record.totalScore,
+          completedAt: Date.now(),
+        }],
+      };
+    });
+    saveTasks(next);
+    set({ tasks: next });
   },
 }));
