@@ -33,6 +33,8 @@ export interface OpinionItem {
   };
 }
 
+export type CaseOrigin = 'builtin' | 'custom' | 'cloned';
+
 export interface CrisisCase {
   id: string;
   title: string;
@@ -43,6 +45,9 @@ export interface CrisisCase {
   background: string;
   stakeholders: string[];
   referenceCase?: string;
+  origin?: CaseOrigin;
+  clonedFromId?: string;
+  clonedFromTitle?: string;
   opinionStream: OpinionItem[];
   keywords: string[];
   idealResponse: {
@@ -50,6 +55,15 @@ export interface CrisisCase {
     qa: string[];
     internal: string;
   };
+}
+
+export interface Trainee {
+  id: string;
+  name: string;
+  role?: string;
+  department?: string;
+  notes?: string;
+  createdAt: number;
 }
 
 export interface TraineeResponse {
@@ -110,11 +124,31 @@ export interface ReviewResult {
   };
   coachReview: CoachReview;
   pressureLevel: PressureLevel;
+  improvementPlan?: ImprovementPlan;
+}
+
+export interface ImprovementPlan {
+  overallGoal: string;
+  focusPoints: {
+    dimension: string;
+    currentScore: number;
+    gap: string;
+    action: string;
+    priority: 'high' | 'medium' | 'low';
+  }[];
+  nextPracticeSuggestion: string;
+  sectionAdvice: {
+    official: string[];
+    qa: string[];
+    internal: string[];
+  };
 }
 
 export interface TrainingRecord {
   id: string;
   createdAt: number;
+  traineeId?: string;
+  traineeName?: string;
   caseId: string;
   caseTitle: string;
   caseCategory: CrisisCategory;
@@ -124,7 +158,7 @@ export interface TrainingRecord {
   response: TraineeResponse;
   totalScore: number;
   reviewResult: ReviewResult;
-  traineeName?: string;
+  improvementPlan?: ImprovementPlan;
 }
 
 export interface TrainingState {

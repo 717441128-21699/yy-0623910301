@@ -16,11 +16,17 @@ import {
   Pencil,
   Trash2,
   Wand2,
+  Users,
+  Copy,
+  UserPlus,
+  X,
+  Edit,
+  FileText,
 } from 'lucide-react';
 import { useTrainingStore } from '../store/trainingStore';
 import { WindowFrame } from './WindowFrame';
 import { CaseEditorModal } from './CaseEditorModal';
-import type { CrisisCategory, CrisisCase } from '../types';
+import type { CrisisCategory, CrisisCase, Trainee } from '../types';
 import { CATEGORY_LABELS, DIFFICULTY_LABELS, OUTBREAK_SPEEDS, MEDIA_ATTENTIONS, PRESSURE_LEVELS } from '../types';
 
 const CATEGORY_ICONS: Record<CrisisCategory, React.ReactNode> = {
@@ -40,16 +46,90 @@ const DIFFICULTY_COLORS: Record<string, string> = {
   expert: 'text-alert-red-500 border-alert-red-600 bg-alert-red-500/10',
 };
 
+const ORIGIN_BADGES: Record<string, { label: string; cls: string }> = {
+  builtin: { label: '内置', cls: 'text-deep-blue-200 border-deep-blue-500 bg-deep-blue-500/20' },
+  custom: { label: '自定义', cls: 'text-calm-teal-400 border-calm-teal-500/40 bg-calm-teal-500/10' },
+  cloned: { label: '模板复制', cls: 'text-terminal-amber border-terminal-amber/40 bg-terminal-amber/10' },
+};
+
 function computePressure(outbreak: number, media: number) {
   const avg = (outbreak + media) / 2;
   const level = Math.max(1, Math.min(4, Math.round(avg))) as 1 | 2 | 3 | 4;
   return PRESSURE_LEVELS[level - 1];
 }
 
+function Modal({ children, onClose, title }: { children: React.ReactNode; onClose: () => void; title: string }) {
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="w-full max-w-md bg-deep-blue-950 border border-pro-gold-500/30 rounded shadow-glow-gold animate-fadeIn">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-deep-blue-600 bg-deep-blue-900/80">
+          <div className="flex items-center gap-2">
+            <Users size={14} className="text-pro-gold-400" />
+            <h3 className="text-sm font-serif-cn text-pro-gold-300">{title}</h3>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-sm text-deep-blue-400 hover:text-deep-blue-100 hover:bg-deep-blue-700/50">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+const TraineeEditor: React.FC<{ initial?: Trainee | null; onSave: (t: Omit<Trainee, 'id' | 'createdAt'> & { id?: string }) => void; onClose: () => void }> = ({ initial, onSave, onClose }) => {
+  const [name, setName] = useState(initial?.name || '');
+  const [role, setRole] = useState(initial?.role || '');
+  const [department, setDepartment] = useState(initial?.department || '');
+  const [notes, setNotes] = useState(initial?.notes || '');
+  const [err, setErr] = useState('');
+
+  const submit = () => {
+    if (!name.trim()) { setErr('请填写学员姓名'); return; }
+    onSave({ id: initial?.id, name: name.trim(), role: role.trim() || undefined, department: department.trim() || undefined, notes: notes.trim() || undefined });
+  };
+
+  return (
+    <div className="space-y-3">
+      {err && <div className="text-[11px] font-mono text-alert-red-400 bg-alert-red-500/10 border border-alert-red-500/30 p-2 rounded-sm">{err}</div>}
+      <label className="block space-y-1">
+        <div className="text-[11px] font-mono text-pro-gold-300">学员姓名 <span className="text-alert-red-400">*</span></div>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="如：张三"
+          className="w-full px-2.5 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 rounded-sm text-sm text-deep-blue-50 font-mono focus:outline-none focus:border-pro-gold-400 focus:shadow-glow-gold transition-all" />
+      </label>
+      <label className="block space-y-1">
+        <div className="text-[11px] font-mono text-pro-gold-300">岗位/职务</div>
+        <input value={role} onChange={e => setRole(e.target.value)} placeholder="如：公关专员 / 区域市场经理"
+          className="w-full px-2.5 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 rounded-sm text-sm text-deep-blue-50 font-mono focus:outline-none focus:border-pro-gold-400" />
+      </label>
+      <label className="block space-y-1">
+        <div className="text-[11px] font-mono text-pro-gold-300">所属部门</div>
+        <input value={department} onChange={e => setDepartment(e.target.value)} placeholder="如：品牌部 / 客服部"
+          className="w-full px-2.5 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 rounded-sm text-sm text-deep-blue-50 font-mono focus:outline-none focus:border-pro-gold-400" />
+      </label>
+      <label className="block space-y-1">
+        <div className="text-[11px] font-mono text-pro-gold-300">备注</div>
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="培训背景、重点关注方向等"
+          className="w-full px-2.5 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 rounded-sm text-sm text-deep-blue-50 font-mono focus:outline-none focus:border-pro-gold-400 resize-none" />
+      </label>
+      <div className="pt-2 flex justify-end gap-2">
+        <button onClick={onClose} className="px-3 py-1.5 rounded-sm border bg-deep-blue-700 hover:bg-deep-blue-600 border-deep-blue-500 text-deep-blue-200 text-xs font-mono">取消</button>
+        <button onClick={submit} className="px-3 py-1.5 rounded-sm border bg-pro-gold-600 hover:bg-pro-gold-500 border-pro-gold-400 text-white text-xs font-mono shadow-glow-gold">保存</button>
+      </div>
+    </div>
+  );
+};
+
 export const CaseLibrary: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<CrisisCategory | 'all'>('all');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingCase, setEditingCase] = useState<CrisisCase | null>(null);
+  const [traineeModal, setTraineeModal] = useState<null | { mode: 'add' | 'edit'; trainee?: Trainee | null }>(null);
 
   const {
     selectedCase,
@@ -63,13 +143,20 @@ export const CaseLibrary: React.FC = () => {
     setActivePanel,
     deleteCustomCase,
     records,
+    trainees,
+    currentTrainee,
+    currentTraineeId,
+    addTrainee,
+    updateTrainee,
+    deleteTrainee,
+    setCurrentTrainee,
+    cloneCase,
+    addCustomCase,
   } = useTrainingStore();
 
   const filteredCases = activeCategory === 'all'
     ? allCases
     : allCases.filter(c => c.category === activeCategory);
-
-  const isCustom = (id: string) => id.startsWith('custom-');
 
   const handleSelectCase = (caseData: CrisisCase) => {
     if (phase === 'running' || phase === 'reviewing') return;
@@ -88,11 +175,48 @@ export const CaseLibrary: React.FC = () => {
     setEditorOpen(true);
   };
 
+  const handleCloneCase = (c: CrisisCase) => {
+    const cloned = cloneCase(c);
+    setEditingCase(cloned);
+    setEditorOpen(true);
+  };
+
+  const handleSaveClone = (c: CrisisCase) => {
+    addCustomCase(c);
+  };
+
   const previewPressure = computePressure(config.outbreakSpeed, config.mediaAttention);
+
+  const traineeRecordCount = currentTraineeId ? records.filter(r => r.traineeId === currentTraineeId).length : 0;
 
   return (
     <>
-      <CaseEditorModal isOpen={editorOpen} onClose={() => { setEditorOpen(false); setEditingCase(null); }} initialCase={editingCase} />
+      <CaseEditorModal
+        isOpen={editorOpen}
+        onClose={() => { setEditorOpen(false); setEditingCase(null); }}
+        initialCase={editingCase}
+        onAfterSave={handleSaveClone}
+      />
+
+      {traineeModal && (
+        <Modal
+          title={traineeModal.mode === 'add' ? '新建学员档案' : '编辑学员档案'}
+          onClose={() => setTraineeModal(null)}
+        >
+          <TraineeEditor
+            initial={traineeModal.trainee || null}
+            onClose={() => setTraineeModal(null)}
+            onSave={(t) => {
+              if (t.id) updateTrainee({ ...t, id: t.id, createdAt: (trainees.find(x => x.id === t.id)?.createdAt) || Date.now() } as Trainee);
+              else {
+                const nt = addTrainee({ name: t.name, role: t.role, department: t.department, notes: t.notes });
+                setCurrentTrainee(nt.id);
+              }
+              setTraineeModal(null);
+            }}
+          />
+        </Modal>
+      )}
 
       <WindowFrame
         title="案例库 / CASE LIBRARY"
@@ -127,7 +251,82 @@ export const CaseLibrary: React.FC = () => {
         }
       >
         <div className="flex flex-col h-full">
-          <div className="p-3 border-b border-deep-blue-500 bg-deep-blue-800/50 space-y-2">
+          <div className="px-3 py-2 border-b border-deep-blue-500 bg-deep-blue-800/50">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-mono">
+                <Users size={11} className="text-calm-teal-400" />
+                <span className="text-deep-blue-300">培训学员</span>
+              </div>
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={() => setTraineeModal({ mode: 'add' })}
+                  className="p-1 text-[9px] font-mono text-calm-teal-400 hover:bg-calm-teal-500/10 rounded-sm flex items-center gap-0.5"
+                  title="新建学员"
+                >
+                  <UserPlus size={11} />
+                  新建
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <select
+                value={currentTraineeId || ''}
+                onChange={(e) => setCurrentTrainee(e.target.value || null)}
+                className="flex-1 px-2 py-1.5 bg-deep-blue-900/60 border border-deep-blue-500 text-[11px] font-mono text-deep-blue-100 rounded-sm focus:outline-none focus:border-calm-teal-400"
+              >
+                <option value="">— 未指定学员（匿名训练）—</option>
+                {trainees.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}{t.department ? `（${t.department}）` : ''}{t.role ? ` - ${t.role}` : ''}
+                  </option>
+                ))}
+              </select>
+              {currentTrainee && (
+                <>
+                  <button
+                    onClick={() => setTraineeModal({ mode: 'edit', trainee: currentTrainee })}
+                    className="p-1 text-deep-blue-400 hover:text-pro-gold-400 hover:bg-pro-gold-500/10 rounded-sm transition-colors"
+                    title="编辑学员"
+                  >
+                    <Edit size={12} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm(`确定删除学员「${currentTrainee.name}」？该学员的训练记录不会被删除。`)) {
+                        deleteTrainee(currentTrainee.id);
+                      }
+                    }}
+                    className="p-1 text-deep-blue-400 hover:text-alert-red-400 hover:bg-alert-red-500/10 rounded-sm transition-colors"
+                    title="删除学员"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </>
+              )}
+            </div>
+
+            {currentTrainee && (
+              <div className="mt-2 text-[10px] font-mono text-deep-blue-300 flex items-center gap-2 flex-wrap">
+                {currentTrainee.role && <span className="px-1.5 py-0.5 rounded-sm bg-deep-blue-700/60 border border-deep-blue-600">岗位: {currentTrainee.role}</span>}
+                {currentTrainee.department && <span className="px-1.5 py-0.5 rounded-sm bg-deep-blue-700/60 border border-deep-blue-600">部门: {currentTrainee.department}</span>}
+                <span className="px-1.5 py-0.5 rounded-sm bg-terminal-green/10 border border-terminal-green/30 text-terminal-green">
+                  <FileText size={9} className="inline -mt-0.5 mr-0.5" />
+                  已完成 {traineeRecordCount} 次训练
+                </span>
+                {currentTrainee.notes && <span className="text-deep-blue-500 w-full truncate">备注：{currentTrainee.notes}</span>}
+              </div>
+            )}
+
+            {!currentTrainee && trainees.length === 0 && (
+              <div className="mt-2 p-1.5 rounded-sm bg-deep-blue-800/40 border border-deep-blue-600 text-[10px] font-mono text-deep-blue-400 flex items-center gap-1">
+                <UserPlus size={10} className="text-calm-teal-400" />
+                点击「新建」建立学员档案，训练记录将按学员归档
+              </div>
+            )}
+          </div>
+
+          <div className="px-3 py-2 border-b border-deep-blue-500 bg-deep-blue-800/30">
             <div className="flex flex-wrap gap-1">
               <button
                 onClick={() => setActiveCategory('all')}
@@ -167,7 +366,10 @@ export const CaseLibrary: React.FC = () => {
                 此分类暂无案例
               </div>
             ) : filteredCases.map(caseData => {
-              const custom = isCustom(caseData.id);
+              const origin = caseData.origin || (caseData.id.startsWith('case-') ? 'builtin' : 'custom');
+              const originBadge = ORIGIN_BADGES[origin] || ORIGIN_BADGES.custom;
+              const showEdit = caseData.origin !== 'builtin';
+
               return (
                 <div
                   key={caseData.id}
@@ -179,16 +381,22 @@ export const CaseLibrary: React.FC = () => {
                   onClick={() => handleSelectCase(caseData)}
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="flex items-start gap-2 min-w-0">
+                    <div className="flex items-start gap-2 min-w-0 flex-1">
                       <span className="text-pro-gold-400 flex-shrink-0 mt-0.5">{CATEGORY_ICONS[caseData.category]}</span>
-                      <h3 className="font-serif-cn text-sm text-deep-blue-50 font-semibold leading-snug break-all">{caseData.title}</h3>
+                      <div className="min-w-0">
+                        <h3 className="font-serif-cn text-sm text-deep-blue-50 font-semibold leading-snug break-all">{caseData.title}</h3>
+                        {caseData.clonedFromTitle && (
+                          <div className="text-[10px] font-mono text-deep-blue-500 mt-0.5 flex items-center gap-0.5">
+                            <Copy size={9} />
+                            源自模板：{caseData.clonedFromTitle}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {custom && (
-                        <span className="px-1.5 py-0.5 text-[9px] font-mono rounded-sm bg-calm-teal-500/15 border border-calm-teal-500/40 text-calm-teal-400">
-                          自定义
-                        </span>
-                      )}
+                    <div className="flex items-center gap-1 flex-shrink-0 flex-wrap justify-end">
+                      <span className={`px-1.5 py-0.5 text-[9px] font-mono rounded-sm border ${originBadge.cls}`}>
+                        {originBadge.label}
+                      </span>
                       <span className={`px-2 py-0.5 text-[10px] font-mono rounded-sm border whitespace-nowrap ${DIFFICULTY_COLORS[caseData.difficulty]}`}>
                         {DIFFICULTY_LABELS[caseData.difficulty]}
                       </span>
@@ -199,40 +407,42 @@ export const CaseLibrary: React.FC = () => {
                   </p>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3 text-[11px] text-deep-blue-300 font-mono">
-                      <span className="flex items-center gap-1">
-                        <Clock size={11} />
-                        约{caseData.estimatedDuration}分钟
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Target size={11} />
-                        {caseData.keywords.length}个关键词
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Radio size={11} />
-                        {caseData.opinionStream.length}条舆情
-                      </span>
+                      <span className="flex items-center gap-1"><Clock size={11} />约{caseData.estimatedDuration}分钟</span>
+                      <span className="flex items-center gap-1"><Target size={11} />{caseData.keywords.length}个关键词</span>
+                      <span className="flex items-center gap-1"><Radio size={11} />{caseData.opinionStream.length}条舆情</span>
                     </div>
-                    {custom && phase !== 'running' && phase !== 'reviewing' && (
+                    {phase !== 'running' && phase !== 'reviewing' && (
                       <div className="flex items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
                         <button
-                          onClick={(e) => { e.stopPropagation(); openEditEditor(caseData); }}
-                          className="p-1 rounded-sm text-deep-blue-400 hover:text-pro-gold-400 hover:bg-pro-gold-500/10 transition-colors"
-                          title="编辑"
+                          onClick={(e) => { e.stopPropagation(); handleCloneCase(caseData); }}
+                          className="p-1 rounded-sm text-deep-blue-400 hover:text-terminal-amber hover:bg-terminal-amber/10 transition-colors"
+                          title="复制为企业定制版"
                         >
-                          <Pencil size={12} />
+                          <Copy size={12} />
                         </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (confirm(`确定删除案例「${caseData.title}」吗？此操作不可恢复。`)) {
-                              deleteCustomCase(caseData.id);
-                            }
-                          }}
-                          className="p-1 rounded-sm text-deep-blue-400 hover:text-alert-red-400 hover:bg-alert-red-500/10 transition-colors"
-                          title="删除"
-                        >
-                          <Trash2 size={12} />
-                        </button>
+                        {showEdit && (
+                          <>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openEditEditor(caseData); }}
+                              className="p-1 rounded-sm text-deep-blue-400 hover:text-pro-gold-400 hover:bg-pro-gold-500/10 transition-colors"
+                              title="编辑"
+                            >
+                              <Pencil size={12} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm(`确定删除案例「${caseData.title}」吗？此操作不可恢复。`)) {
+                                  deleteCustomCase(caseData.id);
+                                }
+                              }}
+                              className="p-1 rounded-sm text-deep-blue-400 hover:text-alert-red-400 hover:bg-alert-red-500/10 transition-colors"
+                              title="删除"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -357,7 +567,7 @@ export const CaseLibrary: React.FC = () => {
                 }`}
               >
                 <ChevronRight size={16} />
-                启动危机演练
+                {currentTrainee ? `${currentTrainee.name} · 启动危机演练` : '启动危机演练（未指定学员）'}
               </button>
             </div>
           )}

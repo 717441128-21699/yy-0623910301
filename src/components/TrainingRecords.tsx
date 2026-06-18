@@ -19,6 +19,12 @@ import {
   Trash,
   AlertCircle,
   Sparkles,
+  User,
+  Target as TargetIcon,
+  ArrowRight,
+  Layers,
+  Flag,
+  CheckCircle,
 } from 'lucide-react';
 import {
   Radar,
@@ -37,7 +43,7 @@ import {
 } from 'recharts';
 import { useTrainingStore } from '../store/trainingStore';
 import { WindowFrame } from './WindowFrame';
-import type { TrainingRecord } from '../types';
+import type { TrainingRecord, ImprovementPlan } from '../types';
 import { SOURCE_LABELS } from '../types';
 
 const DifficultyBadge: React.FC<{ level: string }> = ({ level }) => {
@@ -85,6 +91,7 @@ function RecordMiniChart({ records }: { records: TrainingRecord[] }) {
     fact: r.reviewResult?.factuality.score || 0,
     attitude: r.reviewResult?.attitude.score || 0,
     risk: r.reviewResult?.riskWords.score || 0,
+    pressure: r.pressureLevel?.level ? r.pressureLevel.level * 25 : 0,
   }));
 
   return (
@@ -119,7 +126,7 @@ function RecordMiniChart({ records }: { records: TrainingRecord[] }) {
             dataKey="score"
             name="总分"
             stroke="#d4a373"
-            strokeWidth={2}
+            strokeWidth={2.2}
             dot={{ r: 3, fill: '#d4a373' }}
           />
           <Line
@@ -138,8 +145,110 @@ function RecordMiniChart({ records }: { records: TrainingRecord[] }) {
             strokeWidth={1.2}
             dot={{ r: 2 }}
           />
+          <Line
+            type="monotone"
+            dataKey="pressure"
+            name="压力等级(%)"
+            stroke="#e63946"
+            strokeWidth={1.0}
+            strokeDasharray="4 3"
+            dot={false}
+          />
         </LineChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+function ImprovementPlanPanel({ plan }: { plan: ImprovementPlan }) {
+  const priorityBadge = (p: 'high' | 'medium' | 'low') => {
+    if (p === 'high') return <span className="px-1 py-px text-[9px] font-mono rounded-sm border border-alert-red-500 text-alert-red-400 bg-alert-red-500/15">高</span>;
+    if (p === 'medium') return <span className="px-1 py-px text-[9px] font-mono rounded-sm border border-terminal-amber text-terminal-amber bg-terminal-amber/10">中</span>;
+    return <span className="px-1 py-px text-[9px] font-mono rounded-sm border border-calm-teal-500 text-calm-teal-400 bg-calm-teal-500/10">低</span>;
+  };
+
+  return (
+    <div className="space-y-3 p-2 rounded-sm border border-pro-gold-500/30 bg-pro-gold-500/5">
+      <div className="flex items-center gap-1.5">
+        <TargetIcon size={12} className="text-pro-gold-400" />
+        <span className="text-[11px] font-serif-cn text-pro-gold-300">本次训练改进计划</span>
+      </div>
+
+      <div className="p-2 rounded-sm bg-deep-blue-900/50 border border-deep-blue-600">
+        <div className="text-[10px] font-mono text-deep-blue-400 mb-0.5">总体目标</div>
+        <div className="text-[11px] font-serif-cn text-deep-blue-100 leading-relaxed">{plan.overallGoal}</div>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="text-[10px] font-mono text-calm-teal-400 flex items-center gap-1">
+          <Flag size={10} />
+          重点突破方向
+        </div>
+        {plan.focusPoints.map((p, i) => (
+          <div key={i} className="p-2 rounded-sm bg-deep-blue-900/50 border border-deep-blue-600 space-y-0.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                {priorityBadge(p.priority)}
+                <span className="text-[11px] font-mono text-deep-blue-100">{p.dimension}</span>
+              </div>
+              <span className={`text-[11px] font-mono font-bold ${scoreClass(p.currentScore)}`}>
+                当前 {p.currentScore}
+              </span>
+            </div>
+            <div className="text-[10px] font-mono text-terminal-amber pl-3 flex items-start gap-1">
+              <ArrowRight size={9} className="mt-0.5 flex-shrink-0" />
+              <span>差距：{p.gap}</span>
+            </div>
+            <div className="text-[10px] font-mono text-calm-teal-400 pl-3 flex items-start gap-1">
+              <CheckCircle size={9} className="mt-0.5 flex-shrink-0" />
+              <span>行动：{p.action}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-3 gap-1">
+        <div className="p-1.5 rounded-sm bg-deep-blue-900/50 border border-deep-blue-600">
+          <div className="text-[9px] font-mono text-deep-blue-400 mb-0.5 flex items-center gap-0.5">
+            <FileText size={9} />官方回应
+          </div>
+          <ul className="space-y-0.5">
+            {plan.sectionAdvice.official.map((a, i) => (
+              <li key={i} className="text-[9px] font-mono text-deep-blue-200 pl-2">· {a}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="p-1.5 rounded-sm bg-deep-blue-900/50 border border-deep-blue-600">
+          <div className="text-[9px] font-mono text-deep-blue-400 mb-0.5 flex items-center gap-0.5">
+            <BookOpen size={9} />问答口径
+          </div>
+          <ul className="space-y-0.5">
+            {plan.sectionAdvice.qa.map((a, i) => (
+              <li key={i} className="text-[9px] font-mono text-deep-blue-200 pl-2">· {a}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="p-1.5 rounded-sm bg-deep-blue-900/50 border border-deep-blue-600">
+          <div className="text-[9px] font-mono text-deep-blue-400 mb-0.5 flex items-center gap-0.5">
+            <Users size={9} />内部通报
+          </div>
+          <ul className="space-y-0.5">
+            {plan.sectionAdvice.internal.map((a, i) => (
+              <li key={i} className="text-[9px] font-mono text-deep-blue-200 pl-2">· {a}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="p-2 rounded-sm bg-terminal-amber/5 border border-terminal-amber/30">
+        <div className="text-[10px] font-mono text-terminal-amber mb-0.5 flex items-center gap-1">
+          <Sparkles size={10} />
+          下一次练习建议
+        </div>
+        <div className="text-[10px] font-serif-cn text-deep-blue-100 leading-relaxed">
+          {plan.nextPracticeSuggestion}
+        </div>
+      </div>
     </div>
   );
 }
@@ -170,6 +279,8 @@ function RecordDetail({ record }: { record: TrainingRecord }) {
           </div>
         </div>
       )}
+
+      {record.improvementPlan && <ImprovementPlanPanel plan={record.improvementPlan} />}
 
       <div className="h-44 bg-deep-blue-900/40 rounded-sm border border-deep-blue-600">
         <ResponsiveContainer width="100%" height="100%">
@@ -303,6 +414,18 @@ const RecordRow: React.FC<{ record: TrainingRecord; onDelete: () => void }> = ({
                 <Flame size={9} />
                 {pressure.label}
               </span>
+              {record.traineeName && (
+                <span className="px-1.5 py-0.5 text-[10px] font-mono rounded-sm bg-calm-teal-500/10 border border-calm-teal-500/30 text-calm-teal-400 flex items-center gap-0.5">
+                  <User size={9} />
+                  {record.traineeName}
+                </span>
+              )}
+              {record.improvementPlan && (
+                <span className="px-1.5 py-0.5 text-[10px] font-mono rounded-sm bg-terminal-green/10 border border-terminal-green/30 text-terminal-green flex items-center gap-0.5">
+                  <Target size={9} />
+                  已生成改进计划
+                </span>
+              )}
             </div>
             <div className="text-xs font-serif-cn text-deep-blue-100 truncate">{record.caseTitle}</div>
             <div className="flex items-center gap-2 text-[10px] font-mono text-deep-blue-500 mt-0.5">
@@ -336,8 +459,9 @@ const RecordRow: React.FC<{ record: TrainingRecord; onDelete: () => void }> = ({
 };
 
 export const TrainingRecords: React.FC = () => {
-  const { records, deleteRecord, clearAllRecords, setActivePanel } = useTrainingStore();
+  const { records, deleteRecord, clearAllRecords, setActivePanel, trainees, currentTraineeId, setCurrentTrainee } = useTrainingStore();
   const [filterCategory, setFilterCategory] = useState<string>('all');
+  const [filterTraineeId, setFilterTraineeId] = useState<string>(currentTraineeId || 'all');
   const [sortBy, setSortBy] = useState<'date' | 'score'>('date');
 
   const categories = useMemo(() => {
@@ -345,19 +469,26 @@ export const TrainingRecords: React.FC = () => {
     return Array.from(set);
   }, [records]);
 
+  const traineeRecordCount = (id: string) => records.filter(r => r.traineeId === id).length;
+  const anonymousCount = records.filter(r => !r.traineeId).length;
+
   const filteredSorted = useMemo(() => {
     let list = records.slice();
     if (filterCategory !== 'all') list = list.filter(r => r.caseCategory === filterCategory);
+    if (filterTraineeId !== 'all') {
+      if (filterTraineeId === 'anonymous') list = list.filter(r => !r.traineeId);
+      else list = list.filter(r => r.traineeId === filterTraineeId);
+    }
     if (sortBy === 'date') list.sort((a, b) => b.createdAt - a.createdAt);
     else list.sort((a, b) => b.totalScore - a.totalScore);
     return list;
-  }, [records, filterCategory, sortBy]);
+  }, [records, filterCategory, sortBy, filterTraineeId]);
 
-  const avgScore = records.length > 0
-    ? Math.round(records.reduce((s, r) => s + r.totalScore, 0) / records.length)
+  const avgScore = filteredSorted.length > 0
+    ? Math.round(filteredSorted.reduce((s, r) => s + r.totalScore, 0) / filteredSorted.length)
     : 0;
-  const bestScore = records.length > 0
-    ? Math.max(...records.map(r => r.totalScore))
+  const bestScore = filteredSorted.length > 0
+    ? Math.max(...filteredSorted.map(r => r.totalScore))
     : 0;
 
   return (
@@ -381,10 +512,59 @@ export const TrainingRecords: React.FC = () => {
         <div className="p-3 border-b border-deep-blue-500 space-y-3 bg-gradient-to-b from-deep-blue-800/60 to-deep-blue-800/30">
           {records.length > 0 ? (
             <>
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5 text-[10px] font-mono text-deep-blue-300">
+                  <Users size={10} className="text-calm-teal-400" />
+                  <span>按学员筛选</span>
+                </div>
+                <div className="flex gap-1 flex-wrap">
+                  <button
+                    onClick={() => setFilterTraineeId('all')}
+                    className={`px-2 py-1 text-[10px] font-mono rounded-sm border transition-all ${
+                      filterTraineeId === 'all'
+                        ? 'bg-pro-gold-500/20 border-pro-gold-400 text-pro-gold-300'
+                        : 'bg-deep-blue-700 border-deep-blue-500 text-deep-blue-200 hover:border-deep-blue-400'
+                    }`}
+                  >
+                    全部学员 ({records.length})
+                  </button>
+                  {trainees.map(t => {
+                    const c = traineeRecordCount(t.id);
+                    if (c === 0) return null;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => setFilterTraineeId(t.id)}
+                        className={`px-2 py-1 text-[10px] font-mono rounded-sm border transition-all flex items-center gap-1 ${
+                          filterTraineeId === t.id
+                            ? 'bg-calm-teal-500/20 border-calm-teal-400 text-calm-teal-300'
+                            : 'bg-deep-blue-700 border-deep-blue-500 text-deep-blue-200 hover:border-deep-blue-400'
+                        }`}
+                      >
+                        <User size={9} />
+                        {t.name} ({c})
+                      </button>
+                    );
+                  })}
+                  {anonymousCount > 0 && (
+                    <button
+                      onClick={() => setFilterTraineeId('anonymous')}
+                      className={`px-2 py-1 text-[10px] font-mono rounded-sm border transition-all ${
+                        filterTraineeId === 'anonymous'
+                          ? 'bg-deep-blue-500/30 border-deep-blue-400 text-deep-blue-100'
+                          : 'bg-deep-blue-700 border-deep-blue-500 text-deep-blue-200 hover:border-deep-blue-400'
+                      }`}
+                    >
+                      匿名训练 ({anonymousCount})
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="grid grid-cols-3 gap-2">
                 <div className="p-2 rounded-sm bg-deep-blue-900/60 border border-deep-blue-600 text-center">
-                  <div className="text-[10px] font-mono text-deep-blue-400 mb-1">总次数</div>
-                  <div className="text-xl font-mono font-bold text-terminal-green">{records.length}</div>
+                  <div className="text-[10px] font-mono text-deep-blue-400 mb-1">训练次数</div>
+                  <div className="text-xl font-mono font-bold text-terminal-green">{filteredSorted.length}</div>
                 </div>
                 <div className="p-2 rounded-sm bg-deep-blue-900/60 border border-deep-blue-600 text-center">
                   <div className="text-[10px] font-mono text-deep-blue-400 mb-1">平均分</div>
@@ -396,7 +576,7 @@ export const TrainingRecords: React.FC = () => {
                 </div>
               </div>
 
-              {records.length >= 2 && <RecordMiniChart records={records} />}
+              {filteredSorted.length >= 2 && <RecordMiniChart records={filteredSorted} />}
 
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex items-center gap-1 text-[10px] font-mono">
@@ -423,7 +603,7 @@ export const TrainingRecords: React.FC = () => {
                     <option value="score">按分数倒序</option>
                   </select>
                 </div>
-                {records.length > 0 && (
+                {filteredSorted.length > 0 && (
                   <button
                     onClick={() => { if (confirm('确定清空全部训练记录？此操作不可恢复。')) clearAllRecords(); }}
                     className="ml-auto px-2 py-0.5 text-[10px] font-mono rounded-sm border border-alert-red-500/50 text-alert-red-400 hover:bg-alert-red-500/10 flex items-center gap-0.5 transition-colors"
@@ -455,6 +635,13 @@ export const TrainingRecords: React.FC = () => {
                   <BarChart3 size={12} />
                   开始第一次训练
                 </button>
+              </div>
+            </div>
+          ) : filteredSorted.length === 0 ? (
+            <div className="flex items-center justify-center h-full p-4">
+              <div className="text-center text-xs text-deep-blue-400 font-mono">
+                <Layers size={20} className="mx-auto mb-2 text-deep-blue-500" />
+                该筛选条件下暂无记录
               </div>
             </div>
           ) : (

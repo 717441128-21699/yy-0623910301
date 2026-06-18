@@ -1,4 +1,4 @@
-import type { TraineeResponse, ReviewResult, ScoreDimension, CrisisCase, CoachReview, SectionReview, PressureLevel } from '../types';
+import type { TraineeResponse, ReviewResult, ScoreDimension, CrisisCase, CoachReview, SectionReview, PressureLevel, ImprovementPlan } from '../types';
 import { PRESSURE_LEVELS } from '../types';
 
 const RISK_PHRASES: { pattern: RegExp; suggestion: string; severity: 'high' | 'medium' | 'low'; category: string }[] = [
@@ -410,12 +410,69 @@ function buildCoachReview(response: TraineeResponse, caseData: CrisisCase | null
   return { official, qa, internal, overallFeedback, focusAreas, overallGrade };
 }
 
+export function generateImprovementPlan(
+  totalScore: number,
+  dimensions: { speed: ScoreDimension; factuality: ScoreDimension; attitude: ScoreDimension; riskWords: ScoreDimension },
+  coach: CoachReview,
+  pressure: PressureLevel,
+  caseData: CrisisCase | null
+): ImprovementPlan {
+  const allDims = [
+    { key: 'speed', label: '回应速度', score: dimensions.speed.score },
+    { key: 'factuality', label: '事实完整度', score: dimensions.factuality.score },
+    { key: 'attitude', label: '态度温度', score: dimensions.attitude.score },
+    { key: 'riskWords', label: '风险词规范', score: dimensions.riskWords.score },
+  ].sort((a, b) => a.score - b.score);
+
+  const focusPoints: ImprovementPlan['focusPoints'] = allDims.slice(0, 3).map((d, i) => {
+    const priority: 'high' | 'medium' | 'low' = i === 0 ? 'high' : i === 1 ? 'medium' : 'low';
+    let gap = '';
+    let action = '';
+    if (d.key === 'speed') {
+      gap = d.score >= 80 ? '速度已达标' : d.score >= 60 ? '速度偏慢，决策和组织不够果断' : '反应严重滞后，需建立快速响应SOP';
+      action = d.score >= 80 ? '保持现有节奏' : d.score >= 60 ? '练习"5分钟出首稿"，使用三段模板快速起草' : '背诵优秀回应模板+设置手机倒计时强制提交';
+    } else if (d.key === 'factuality') {
+      gap = d.score >= 80 ? '事实要素覆盖较好' : d.score >= 60 ? '关键事实要素有遗漏，需补全5W2H' : '事实要素严重缺失，容易造成信息真空';
+      action = d.score >= 80 ? '提升表达精准度' : d.score >= 60 ? '使用"事件-措施-承诺"三段检查清单' : '对照优秀回应参考，逐句标注缺失的事实要素';
+    } else if (d.key === 'attitude') {
+      gap = d.score >= 80 ? '态度真诚专业' : d.score >= 60 ? '温度不够，致歉和关切表达不足' : '态度生硬/推卸责任，会激化矛盾';
+      action = d.score >= 80 ? '保持并深化人文关怀' : d.score >= 60 ? '练习"致歉+关切+行动"开场三句话' : '先抄写3遍真诚道歉模板，再重写回应';
+    } else {
+      gap = d.score >= 80 ? '风险控制良好' : d.score >= 60 ? '存在少量风险表述，易被断章取义' : '高风险表述密集，随时可能造成二次危机';
+      action = d.score >= 80 ? '保持敏感警惕' : d.score >= 60 ? '提交前过一遍风险词检查清单' : '建立个人风险词黑名单，每次写完逐句扫描';
+    }
+    return { dimension: d.label, currentScore: d.score, gap, action, priority };
+  });
+
+  let overallGoal = '';
+  if (totalScore >= 85) overallGoal = '稳定保持优秀水平，挑战更高难度案例，追求"专业+真诚"的更高境界';
+  else if (totalScore >= 70) overallGoal = `突破75分瓶颈，重点补齐「${allDims[0].label}」短板，消除"必答"类要素遗漏`;
+  else if (totalScore >= 60) overallGoal = '确保每段回应均覆盖所有"必答"要素，先求无过再求有功，目标下次提升10分';
+  else overallGoal = '【优先】从低压力案例开始，背诵+默写优秀回应模板，建立危机回应的基本肌肉记忆';
+
+  let nextPracticeSuggestion = '';
+  if (totalScore < 60) nextPracticeSuggestion = `选择难度「入门」或「进阶」、压力「低强度」的同类案例（${caseData?.category || '任意场景'}），先完成3遍基础训练`;
+  else if (totalScore < 75) nextPracticeSuggestion = `保持当前难度（${caseData?.difficulty ? caseData.difficulty : '进阶'}），将压力提升1级，重点关注短板维度`;
+  else nextPracticeSuggestion = `挑战「困难」难度案例，或将时长缩短为原时长的2/3，模拟更紧迫的真实环境`;
+
+  const sectionAdvice: ImprovementPlan['sectionAdvice'] = {
+    official: coach.official.missingPoints.filter(m => m.importance === 'essential' || m.importance === 'important').map(m => `补全「${m.point}」`),
+    qa: coach.qa.missingPoints.filter(m => m.importance === 'essential' || m.importance === 'important').map(m => `针对「${m.point}」准备标准化问答`),
+    internal: coach.internal.missingPoints.filter(m => m.importance === 'essential' || m.importance === 'important').map(m => `强化「${m.point}」`),
+  };
+  if (sectionAdvice.official.length === 0) sectionAdvice.official.push('官方回应结构已完整，可优化语言温度和具体措辞');
+  if (sectionAdvice.qa.length === 0) sectionAdvice.qa.push('问答口径覆盖较好，可扩充更多极端/刁钻问题');
+  if (sectionAdvice.internal.length === 0) sectionAdvice.internal.push('内部通报要素已齐全，可进一步细化分工和问责');
+
+  return { overallGoal, focusPoints, nextPracticeSuggestion, sectionAdvice };
+}
+
 export function evaluateResponse(
   response: TraineeResponse,
   totalDuration: number,
   caseData: CrisisCase | null,
   config?: { outbreakSpeed: number; mediaAttention: number }
-): ReviewResult {
+): ReviewResult & { improvementPlan: ImprovementPlan } {
   const fullText = response.officialResponse + response.qaPoints + response.internalNotice;
   const pressureLevel = getPressureLevel(config || { outbreakSpeed: 2, mediaAttention: 2 });
 
@@ -437,11 +494,20 @@ export function evaluateResponse(
   const averageScore = 68;
   const percentile = Math.min(99, Math.max(1, Math.round((totalScore / 100) * 85 + (5 - pressureLevel.level) * 2)));
 
+  const improvementPlan = generateImprovementPlan(
+    totalScore,
+    { speed, factuality, attitude, riskWords },
+    coachReview,
+    pressureLevel,
+    caseData
+  );
+
   return {
     speed, factuality, attitude, riskWords, totalScore, riskPhrases,
     comparison: { bestScore, averageScore, percentile },
     coachReview,
     pressureLevel,
+    improvementPlan,
   };
 }
 

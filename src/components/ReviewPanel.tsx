@@ -23,6 +23,9 @@ import {
   Flame,
   Gauge,
   AlertCircle,
+  Target as TargetIcon,
+  ArrowRight,
+  Flag,
 } from 'lucide-react';
 import {
   Radar,
@@ -35,7 +38,7 @@ import {
 } from 'recharts';
 import { useTrainingStore } from '../store/trainingStore';
 import { WindowFrame } from './WindowFrame';
-import type { ScoreDimension, SectionReview, CoachReview, PressureLevelInfo } from '../types';
+import type { ScoreDimension, SectionReview, CoachReview, PressureLevelInfo, ImprovementPlan } from '../types';
 
 const DIMENSION_ICONS: Record<string, React.ReactNode> = {
   '回应速度': <Clock size={12} />,
@@ -43,6 +46,106 @@ const DIMENSION_ICONS: Record<string, React.ReactNode> = {
   '态度温度': <HeartHandshake size={12} />,
   '风险词使用': <ShieldAlert size={12} />,
 };
+
+function scoreClass(s: number): string {
+  if (s >= 85) return 'text-calm-teal-400';
+  if (s >= 70) return 'text-pro-gold-400';
+  if (s >= 60) return 'text-terminal-amber';
+  return 'text-alert-red-400';
+}
+
+function ImprovementPlanPanel({ plan }: { plan: ImprovementPlan }) {
+  const priorityBadge = (p: 'high' | 'medium' | 'low') => {
+    if (p === 'high') return <span className="px-1 py-px text-[9px] font-mono rounded-sm border border-alert-red-500 text-alert-red-400 bg-alert-red-500/15">高</span>;
+    if (p === 'medium') return <span className="px-1 py-px text-[9px] font-mono rounded-sm border border-terminal-amber text-terminal-amber bg-terminal-amber/10">中</span>;
+    return <span className="px-1 py-px text-[9px] font-mono rounded-sm border border-calm-teal-500 text-calm-teal-400 bg-calm-teal-500/10">低</span>;
+  };
+
+  return (
+    <div className="space-y-3 p-2 rounded-sm border border-pro-gold-500/30 bg-pro-gold-500/5">
+      <div className="flex items-center gap-1.5">
+        <TargetIcon size={12} className="text-pro-gold-400" />
+        <span className="text-[11px] font-serif-cn text-pro-gold-300">本次训练改进计划</span>
+      </div>
+
+      <div className="p-2 rounded-sm bg-deep-blue-900/50 border border-deep-blue-600">
+        <div className="text-[10px] font-mono text-deep-blue-400 mb-0.5">总体目标</div>
+        <div className="text-[11px] font-serif-cn text-deep-blue-100 leading-relaxed">{plan.overallGoal}</div>
+      </div>
+
+      <div className="space-y-1.5">
+        <div className="text-[10px] font-mono text-calm-teal-400 flex items-center gap-1">
+          <Flag size={10} />
+          重点突破方向
+        </div>
+        {plan.focusPoints.map((p, i) => (
+          <div key={i} className="p-2 rounded-sm bg-deep-blue-900/50 border border-deep-blue-600 space-y-0.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                {priorityBadge(p.priority)}
+                <span className="text-[11px] font-mono text-deep-blue-100">{p.dimension}</span>
+              </div>
+              <span className={`text-[11px] font-mono font-bold ${scoreClass(p.currentScore)}`}>
+                当前 {p.currentScore}
+              </span>
+            </div>
+            <div className="text-[10px] font-mono text-terminal-amber pl-3 flex items-start gap-1">
+              <ArrowRight size={9} className="mt-0.5 flex-shrink-0" />
+              <span>差距：{p.gap}</span>
+            </div>
+            <div className="text-[10px] font-mono text-calm-teal-400 pl-3 flex items-start gap-1">
+              <CheckCircle size={9} className="mt-0.5 flex-shrink-0" />
+              <span>行动：{p.action}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-3 gap-1">
+        <div className="p-1.5 rounded-sm bg-deep-blue-900/50 border border-deep-blue-600">
+          <div className="text-[9px] font-mono text-deep-blue-400 mb-0.5 flex items-center gap-0.5">
+            <FileText size={9} />官方回应
+          </div>
+          <ul className="space-y-0.5">
+            {plan.sectionAdvice.official.map((a, i) => (
+              <li key={i} className="text-[9px] font-mono text-deep-blue-200 pl-2">· {a}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="p-1.5 rounded-sm bg-deep-blue-900/50 border border-deep-blue-600">
+          <div className="text-[9px] font-mono text-deep-blue-400 mb-0.5 flex items-center gap-0.5">
+            <BookOpen size={9} />问答口径
+          </div>
+          <ul className="space-y-0.5">
+            {plan.sectionAdvice.qa.map((a, i) => (
+              <li key={i} className="text-[9px] font-mono text-deep-blue-200 pl-2">· {a}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="p-1.5 rounded-sm bg-deep-blue-900/50 border border-deep-blue-600">
+          <div className="text-[9px] font-mono text-deep-blue-400 mb-0.5 flex items-center gap-0.5">
+            <Users size={9} />内部通报
+          </div>
+          <ul className="space-y-0.5">
+            {plan.sectionAdvice.internal.map((a, i) => (
+              <li key={i} className="text-[9px] font-mono text-deep-blue-200 pl-2">· {a}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="p-2 rounded-sm bg-terminal-amber/5 border border-terminal-amber/30">
+        <div className="text-[10px] font-mono text-terminal-amber mb-0.5 flex items-center gap-1">
+          <Sparkles size={10} />
+          下一次练习建议
+        </div>
+        <div className="text-[10px] font-serif-cn text-deep-blue-100 leading-relaxed">
+          {plan.nextPracticeSuggestion}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const ScoreBar: React.FC<{ dimension: ScoreDimension; defaultOpen?: boolean }> = ({ dimension, defaultOpen = false }) => {
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -570,7 +673,12 @@ export const ReviewPanel: React.FC = () => {
                 </div>
 
                 {coachTab === 'summary' && (
-                  <CoachSummaryCard coach={reviewResult.coachReview} pressure={reviewResult.pressureLevel} />
+                  <div className="space-y-2">
+                    <CoachSummaryCard coach={reviewResult.coachReview} pressure={reviewResult.pressureLevel} />
+                    {reviewResult.improvementPlan && (
+                      <ImprovementPlanPanel plan={reviewResult.improvementPlan} />
+                    )}
+                  </div>
                 )}
 
                 {coachTab === 'sections' && (

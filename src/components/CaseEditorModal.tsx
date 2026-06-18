@@ -24,6 +24,7 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   initialCase?: CrisisCase | null;
+  onAfterSave?: (c: CrisisCase) => void;
 }
 
 const SOURCE_OPTIONS: { key: OpinionSource; label: string }[] = [
@@ -135,7 +136,7 @@ const Textarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement> & { l
   </label>
 );
 
-export const CaseEditorModal: React.FC<Props> = ({ isOpen, onClose, initialCase }) => {
+export const CaseEditorModal: React.FC<Props> = ({ isOpen, onClose, initialCase, onAfterSave }) => {
   const { addCustomCase, updateCustomCase } = useTrainingStore();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [caseData, setCaseData] = useState<CrisisCase>(() => (initialCase ? JSON.parse(JSON.stringify(initialCase)) : makeEmptyCase()));
@@ -191,33 +192,62 @@ export const CaseEditorModal: React.FC<Props> = ({ isOpen, onClose, initialCase 
 
   const removeKeyword = (kw: string) => updateField('keywords', caseData.keywords.filter((k) => k !== kw));
 
-  const validateStep = (): string[] => {
+  const validateStep = (fullCheck = false): string[] => {
     const errs: string[] = [];
-    if (step === 1) {
-      if (!caseData.title.trim()) errs.push('请填写案例标题');
-      if (caseData.title.trim().length < 6) errs.push('案例标题建议至少6个字，能简洁概括场景');
-      if (!caseData.background.trim()) errs.push('请填写案例背景描述');
-      if (caseData.background.trim().length < 30) errs.push('背景建议不少于30字，帮助培训者理解场景');
-      if (!caseData.estimatedDuration || caseData.estimatedDuration < 5) errs.push('演练时长至少5分钟');
-    }
-    if (step === 2) {
-      if (caseData.opinionStream.length < 3) errs.push('舆情素材至少准备3条');
-      caseData.opinionStream.forEach((o, i) => {
-        if (!o.sourceName.trim()) errs.push(`舆情#${i + 1}：请填写来源账号/媒体名`);
-        if (!o.content.trim()) errs.push(`舆情#${i + 1}：请填写舆情内容`);
-        if (o.isScreenshot && !o.screenshotMeta?.platform) errs.push(`舆情#${i + 1}：截图需要填写平台名称`);
-      });
-    }
-    if (step === 3) {
-      if (!caseData.idealResponse.official.trim()) errs.push('请填写优秀官方回应参考');
-      if (caseData.idealResponse.qa.length === 0 || caseData.idealResponse.qa.every(q => !q.trim())) errs.push('请至少准备1条问答口径参考');
-      if (!caseData.idealResponse.internal.trim()) errs.push('请填写优秀内部通报参考');
+    const checkStep = (s: 1 | 2 | 3) => {
+      if (s === 1) {
+        if (!caseData.title.trim()) errs.push('【基本信息】请填写案例标题');
+        else if (caseData.title.trim().length < 6) errs.push('【基本信息】案例标题建议至少6个字，能简洁概括场景');
+        if (!caseData.background.trim()) errs.push('【基本信息】请填写案例背景描述');
+        else if (caseData.background.trim().length < 50) errs.push('【基本信息】背景建议不少于50字，帮助培训者理解场景细节');
+        if (!caseData.estimatedDuration || caseData.estimatedDuration < 5) errs.push('【基本信息】演练时长至少5分钟');
+        if (caseData.keywords.length < 3) errs.push('【基本信息】关键词至少准备3个，用于事实完整度评分');
+      }
+      if (s === 2) {
+        if (caseData.opinionStream.length < 5) errs.push('【舆情素材】建议至少准备5条舆情，覆盖新闻/社交/KOL/客服等多种来源');
+        else if (caseData.opinionStream.length < 3) errs.push('【舆情素材】至少3条舆情');
+        const hasNegative = caseData.opinionStream.some(o => o.sentiment === 'negative');
+        if (!hasNegative) errs.push('【舆情素材】至少需要1条负面舆情，才能模拟真实危机');
+        caseData.opinionStream.forEach((o, i) => {
+          if (!o.sourceName.trim() || o.sourceName.trim() === '请填写来源账号/媒体名')
+            errs.push(`【舆情素材】舆情#${i + 1}：请填写来源账号/媒体名`);
+          if (!o.content.trim() || o.content.trim() === '请填写舆情内容')
+            errs.push(`【舆情素材】舆情#${i + 1}：请填写舆情内容`);
+          if (o.content.trim().length < 10 && !(o.content.trim() === '请填写舆情内容'))
+            errs.push(`【舆情素材】舆情#${i + 1}：内容过短，建议至少10字`);
+          if (o.isScreenshot && !o.screenshotMeta?.platform)
+            errs.push(`【舆情素材】舆情#${i + 1}：截图需要填写平台名称`);
+          if (o.timestamp < 0)
+            errs.push(`【舆情素材】舆情#${i + 1}：T+秒数不能为负数`);
+        });
+      }
+      if (s === 3) {
+        if (!caseData.idealResponse.official.trim()) errs.push('【优秀回应】请填写官方回应参考');
+        else if (caseData.idealResponse.official.trim().length < 80) errs.push('【优秀回应】官方回应参考建议至少80字，需包含完整应对结构');
+        if (caseData.idealResponse.qa.length === 0 || caseData.idealResponse.qa.every(q => !q.trim()))
+          errs.push('【优秀回应】请至少准备1条问答口径参考');
+        else {
+          caseData.idealResponse.qa.forEach((q, i) => {
+            if (q.trim() && q.trim().length < 20) errs.push(`【优秀回应】问答口径#${i + 1}：过短，建议包含问题和完整回答`);
+          });
+        }
+        if (!caseData.idealResponse.internal.trim()) errs.push('【优秀回应】请填写内部通报参考');
+        else if (caseData.idealResponse.internal.trim().length < 60) errs.push('【优秀回应】内部通报建议至少60字，包含事件定级/口径/禁令/分工等要点');
+      }
+    };
+
+    if (fullCheck) {
+      checkStep(1);
+      checkStep(2);
+      checkStep(3);
+    } else {
+      checkStep(step);
     }
     return errs;
   };
 
   const nextStep = () => {
-    const errs = validateStep();
+    const errs = validateStep(false);
     if (errs.length > 0) { setErrors(errs); return; }
     setErrors([]);
     if (step < 3) setStep((s) => (s + 1) as any);
@@ -225,7 +255,7 @@ export const CaseEditorModal: React.FC<Props> = ({ isOpen, onClose, initialCase 
   };
 
   const submitCase = () => {
-    const finalErrs = validateStep();
+    const finalErrs = validateStep(true);
     if (finalErrs.length > 0) { setErrors(finalErrs); return; }
 
     const cleaned: CrisisCase = {
@@ -251,8 +281,10 @@ export const CaseEditorModal: React.FC<Props> = ({ isOpen, onClose, initialCase 
 
     if (initialCase) {
       updateCustomCase(cleaned);
+      if (onAfterSave) onAfterSave(cleaned);
     } else {
       addCustomCase(cleaned);
+      if (onAfterSave) onAfterSave(cleaned);
     }
     onClose();
   };
